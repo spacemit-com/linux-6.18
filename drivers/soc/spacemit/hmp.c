@@ -43,6 +43,7 @@ int hmp_get_cpumask(struct cpumask *mask, hmp_type_e type)
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(hmp_get_cpumask);
 
 int hmp_map_ai_to_regular(struct cpumask *mask)
 {
