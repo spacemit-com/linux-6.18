@@ -49,7 +49,7 @@ u32 thead_vlenb_of;
 atomic_t hcontext_disable;
 atomic_t scontext_disable;
 
-DEFINE_STATIC_KEY_FALSE_RO(use_hcontext);
+DEFINE_STATIC_KEY_FALSE(use_hcontext);
 EXPORT_SYMBOL(use_hcontext);
 
 DEFINE_STATIC_KEY_FALSE_RO(use_scontext);
