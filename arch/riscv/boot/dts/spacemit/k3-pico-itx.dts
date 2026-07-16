@@ -12,7 +12,7 @@
 #include <dt-bindings/input/cros-ec-keyboard.h>
 
 / {
-	model = "SpacemiT K3 Pico ITX";
+	model = "SpacemiT K3 Pico-ITX";
 	compatible = "spacemit,k3-pico-itx";
 	cpus: cpus {
 		#address-cells = <1>;
