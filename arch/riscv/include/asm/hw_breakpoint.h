@@ -8,6 +8,11 @@
 
 struct task_struct;
 
+struct perf_event_attr;
+struct notifier_block;
+struct perf_event;
+struct pt_regs;
+
 #ifdef CONFIG_HAVE_HW_BREAKPOINT
 
 #include <uapi/linux/hw_breakpoint.h>
@@ -279,10 +284,6 @@ struct arch_hw_breakpoint {
 /* Maximum number of hardware breakpoints supported */
 #define HW_BP_NUM_MAX 32
 
-struct perf_event_attr;
-struct notifier_block;
-struct perf_event;
-struct pt_regs;
 
 int hw_breakpoint_slots(int type);
 int arch_check_bp_in_kernelspace(struct arch_hw_breakpoint *hw);
@@ -303,7 +304,7 @@ void flush_ptrace_hw_breakpoint(struct task_struct *tsk);
 
 #else
 
-int hw_breakpoint_slots(int type)
+static inline int hw_breakpoint_slots(int type)
 {
 	return 0;
 }
@@ -312,19 +313,15 @@ static inline void clear_ptrace_hw_breakpoint(struct task_struct *tsk)
 {
 }
 
-static inline void flush_ptrace_hw_breakpoint(struct task_struct *tsk)
+static inline void arch_enable_hw_breakpoint(struct perf_event *bp)
 {
 }
 
-void arch_enable_hw_breakpoint(struct perf_event *bp)
+static inline void arch_update_hw_breakpoint(struct perf_event *bp)
 {
 }
 
-void arch_update_hw_breakpoint(struct perf_event *bp)
-{
-}
-
-void arch_disable_hw_breakpoint(struct perf_event *bp)
+static inline void arch_disable_hw_breakpoint(struct perf_event *bp)
 {
 }
 
