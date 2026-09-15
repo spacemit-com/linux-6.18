@@ -170,7 +170,7 @@
 
 			bias-pull-up;
 			drive-strength = <25>;
-			power-source = <1800>;
+			power-source = <3300>;
 		};
 	};
 
