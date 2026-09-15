@@ -634,15 +634,25 @@ static const struct spacemit_ethqos_ops k3_gmac_ops = {
 
 /* TODO: add K4/K5/K6 SoC-specific GMAC macros/ops here in future */
 
+static const struct of_device_id spacemit_ethqos_match[] = {
+	{ .compatible = "spacemit,k3-gmac", .data = &k3_gmac_ops },
+	{}
+};
+
 static int spacemit_ethqos_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct stmmac_resources stmmac_res;
 	struct plat_stmmacenet_data *plat_dat;
 	const struct spacemit_ethqos_ops *ops;
+	const struct of_device_id *match;
 	int ret;
 
-	ops = of_device_get_match_data(dev);
+	match = of_match_node(spacemit_ethqos_match, dev->of_node);
+	if (!match)
+		return -ENODEV;
+
+	ops = match->data;
 	if (!ops)
 		return dev_err_probe(dev, -EINVAL, "no of_match data");
 
@@ -665,18 +675,11 @@ static int spacemit_ethqos_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static const struct of_device_id spacemit_ethqos_match[] = {
-	{ .compatible = "spacemit,k3-ec-gmac", .data = &k3_gmac_ops },
-	{}
-};
-MODULE_DEVICE_TABLE(of, spacemit_ethqos_match);
-
 static struct platform_driver spacemit_ethqos_driver = {
 	.probe  = spacemit_ethqos_probe,
 	.driver = {
 		.name           = DRIVER_NAME,
 		.pm             = &ec_stmmac_pltfr_pm_ops,
-		.of_match_table = spacemit_ethqos_match,
 	},
 };
 module_platform_driver(spacemit_ethqos_driver);
