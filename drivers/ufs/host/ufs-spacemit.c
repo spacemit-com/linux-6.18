@@ -654,7 +654,7 @@ static void ufs_spacemit_set_caps(struct ufs_hba *hba)
 	/* hba->caps |= UFSHCD_CAP_CRYPTO; */
 
 	/* support write booster */
-	/* hba->caps |= UFSHCD_CAP_WB_EN; */
+	hba->caps |= UFSHCD_CAP_WB_EN;
 
 	/* support runtime autosuspend */
 	/* hba->caps |= UFSHCD_CAP_RPM_AUTOSUSPEND; */
