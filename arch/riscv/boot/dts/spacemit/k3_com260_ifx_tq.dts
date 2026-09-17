@@ -30,6 +30,28 @@
 		regulator-boot-on;
 		gpio = <&gpio 1 21 0>;
 	};
+
+	firefly_leds: leds {
+		compatible = "gpio-leds";
+		pinctrl-names = "default";
+		pinctrl-0 = <&led_power &led_user>;
+		status = "okay";
+
+		power_led: power {
+			label = ":power_green";
+			linux,default-trigger = "ir-power-click";
+			gpios = <&gpio K3_GPIO(48) GPIO_ACTIVE_HIGH>;
+			default-state = "on";
+		};
+
+		user_led: user {
+			label = ":user_red";
+			linux,default-trigger = "ir-user-click";
+			gpios = <&gpio K3_GPIO(49) GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+	};
+
 };
 
 &pinctrl {
@@ -46,6 +68,26 @@
 	can2-1-cfg {
 		can2-0-pins {
 			power-source = <3300>;
+		};
+	};
+
+	led_power: led-power-cfg {
+		led-power-pins {
+			pinmux = <K3_PADCONF(48, 0)>;
+
+			bias-disable;
+			drive-strength = <25>;
+			power-source = <1800>;
+		};
+	};
+
+	led_user: led-user-cfg {
+		led-user-pins {
+			pinmux = <K3_PADCONF(49, 0)>;
+
+			bias-disable;
+			drive-strength = <25>;
+			power-source = <1800>;
 		};
 	};
 };
