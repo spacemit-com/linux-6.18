@@ -480,26 +480,28 @@ static const struct phy_ops k3_usb3phy_ops = {
 	.owner = THIS_MODULE,
 };
 
+/* Override is always enabled, phy_idx selects the OVRD direction bit */
+static int k3_usb3phy_choose_phy(struct k3_usb3phy *k3_phy, bool phy_idx)
+{
+	u32 val = TYPEC_ORIENT_OVRD_EN | (phy_idx ? TYPEC_ORIENT_OVRD : 0);
+
+	return regmap_update_bits(k3_phy->pmu, PMUA_TYPEC_CTRL,
+				  TYPEC_ORIENT_OVRD_EN | TYPEC_ORIENT_OVRD,
+				  val);
+}
+
 #if IS_ENABLED(CONFIG_TYPEC)
 static int k3_usb3phy_switch_set(struct typec_switch_dev *sw,
 				 enum typec_orientation orientation)
 {
 	struct k3_usb3phy *k3_phy = typec_switch_get_drvdata(sw);
-	bool val;
+	unsigned int phy_idx = orientation == TYPEC_ORIENTATION_REVERSE;
 
-	val = orientation == TYPEC_ORIENTATION_REVERSE;
 	if (k3_phy->orientation_flip)
-		val = !val;
+		phy_idx = !phy_idx;
 
-	if (regmap_test_bits(k3_phy->pmu, PMUA_TYPEC_CTRL,
-			     TYPEC_ORIENT_OVRD | TYPEC_ORIENT_OVRD_EN) != val)
-		regmap_update_bits(
-			k3_phy->pmu, PMUA_TYPEC_CTRL,
-			TYPEC_ORIENT_OVRD | TYPEC_ORIENT_OVRD_EN,
-			val ? TYPEC_ORIENT_OVRD | TYPEC_ORIENT_OVRD_EN : 0);
-
-	dev_dbg(k3_phy->dev, "Override orientation with %d\n", val);
-	return 0;
+	dev_dbg(k3_phy->dev, "override orientation: phy_idx %u\n", phy_idx);
+	return k3_usb3phy_choose_phy(k3_phy, phy_idx);
 }
 
 static void k3_usb3_typec_unregister(void *data)
@@ -540,24 +542,60 @@ static int k3_usb3_typec_register(struct k3_usb3phy *k3_phy)
 static int k3_usb3phy_switch_init(struct k3_usb3phy *k3_phy)
 {
 	struct device *dev = k3_phy->dev;
-	bool flip, override;
-	u32 val = 0;
+	bool flip, controlled, fixed;
+	int ret;
 
 	if (!device_is_compatible(dev, "spacemit,k3-typec-switch"))
 		return 0;
 
-	flip = device_property_read_bool(dev, "orientation-flip");
-	override = device_property_read_bool(dev, "orientation-switch");
-	if (flip && !override)
-		regmap_update_bits(k3_phy->pmu, PMUA_TYPEC_CTRL,
-				   TYPEC_ORIENT_FLIP, val);
+	/*
+	* Orientation control flags — valid combinations:
+	*
+	* +---------+------+-------+--------------------------------------+
+	* | flip    | fixed| switch| Behavior                             |
+	* +---------+------+-------+--------------------------------------+
+	* | optional| no   | no    | DIR pin decides orientation          |
+	* | optional| yes  | no    | Force fixed orientation              |
+	* | optional| no   | yes   | TypeC software-controlled orientation|
+	* | optional| yes  | yes   | INVALID                              |
+	* +---------+------+-------+--------------------------------------+
+	*/
+	flip     = device_property_read_bool(dev, "orientation-flip");
+	fixed    = device_property_read_bool(dev, "orientation-fixed");
+	controlled = device_property_read_bool(dev, "orientation-switch");
 
-	if (!override)
-		return 0;
+	if (fixed && controlled)
+		return dev_err_probe(dev, -EINVAL,
+				     "can't set fixed and orientation-switch both\n");
 
-	k3_phy->orientation_flip = flip;
-	return k3_usb3_typec_register(k3_phy);
-};
+	if (controlled && !IS_ENABLED(CONFIG_TYPEC))
+		return dev_err_probe(dev, -EINVAL,
+				     "orientation-switch requires CONFIG_TYPEC\n");
+
+	/* clear firmware leftovers, else DIR pin is ignored or flip doubles */
+	ret = regmap_update_bits(k3_phy->pmu, PMUA_TYPEC_CTRL,
+				 TYPEC_ORIENT_FLIP | TYPEC_ORIENT_OVRD_EN |
+				 TYPEC_ORIENT_OVRD, 0);
+	if (ret)
+		return ret;
+
+	/* reports orientation via typec_switch */
+	if (controlled) {
+		k3_phy->orientation_flip = flip;
+		return k3_usb3_typec_register(k3_phy);
+	}
+
+	/* force override when DIR pin is undefined */
+	if (fixed)
+		return k3_usb3phy_choose_phy(k3_phy, flip);
+
+	/* DIR pin controls */
+	ret = regmap_update_bits(k3_phy->pmu, PMUA_TYPEC_CTRL,
+				 TYPEC_ORIENT_FLIP,
+				 flip ? TYPEC_ORIENT_FLIP : 0);
+
+	return ret;
+}
 
 static int k3_usb3phy_probe(struct platform_device *pdev)
 {
