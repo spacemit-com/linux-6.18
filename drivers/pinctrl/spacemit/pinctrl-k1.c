@@ -905,17 +905,39 @@ static void spacemit_pinctrl_clear_edge(struct spacemit_pinctrl *pctrl, uint32_t
 	writel(value, reg);
 }
 
+/*
+ * Clear a latched edge on @pin, leaving the edge detection enables alone.
+ *
+ * This is the only thing that deasserts the wake-up interrupt line, and genirq
+ * reaches it only through ->irq_mask().  That is unreachable for an interrupt
+ * that is disabled, and for one that no driver has ever requested, in which
+ * case the pin would stay latched and hold the level triggered parent up
+ * forever.
+ *
+ * The pad register is shared with the mux and pinconf paths, which serialise
+ * their own read-modify-write on @pctrl->lock, so take it here too.  A lost
+ * update in either direction is fatal: a stale snapshot written back drops
+ * PAD_EDGE_CLEAR and the level triggered parent stays asserted, which is the
+ * very spin this function exists to prevent.
+ */
+static void spacemit_pinctrl_clear_latch(struct spacemit_pinctrl *pctrl,
+					 unsigned int pin)
+{
+	void __iomem *reg = spacemit_pin_to_reg(pctrl, pin);
+	u32 value;
+
+	guard(raw_spinlock_irqsave)(&pctrl->lock);
+
+	value = readl_relaxed(reg);
+	value |= PAD_EDGE_CLEAR;
+	writel_relaxed(value, reg);
+}
+
 static void spacemit_pinctrl_wakeirq_mask(struct irq_data *d)
 {
 	struct spacemit_pinctrl *pctrl = irq_data_get_irq_chip_data(d);
-	void __iomem *reg;
-	u32 value;
 
-	reg = pctrl->regs + pctrl->data->pin_to_offset(d->hwirq);
-
-	value = readl(reg);
-	value |= PAD_EDGE_CLEAR;
-	writel(value, reg);
+	spacemit_pinctrl_clear_latch(pctrl, d->hwirq);
 }
 
 static void spacemit_pinctrl_wakeirq_unmask(struct irq_data *d)
@@ -967,7 +989,7 @@ static int spacemit_pinctrl_wakeirq_set_type(struct irq_data *d, unsigned int fl
 static irqreturn_t spacemit_pinctrl_wakeirq_handler(int irq, void *data)
 {
 	struct spacemit_pinctrl *pctrl = data;
-	unsigned long status, hwirq;
+	unsigned long status;
 	unsigned int i;
 	u32 reg_offset, hwirq_bit;
 	int num_banks = DIV_ROUND_UP(pctrl->data->npins, 32);
@@ -977,10 +999,27 @@ static irqreturn_t spacemit_pinctrl_wakeirq_handler(int irq, void *data)
 		regmap_read(pctrl->rm_gpio_edge, reg_offset, (u32 *)&status);
 
 		for_each_set_bit(hwirq_bit, &status, 32) {
-			hwirq = i * 32 + hwirq_bit;
+			struct irq_data *irqd;
+			unsigned long hwirq = i * 32 + hwirq_bit;
+			unsigned int virq;
 
-			/* Only handle the requested irq */
-			generic_handle_domain_irq(pctrl->irq_domain, hwirq);
+			virq = irq_find_mapping(pctrl->irq_domain, hwirq);
+			irqd = virq ? irq_get_irq_data(virq) : NULL;
+
+			/*
+			 * Clear the latch here for every source genirq will not
+			 * clear by itself: unmapped ones, and mapped ones that
+			 * are disabled or already masked.  The condition mirrors
+			 * what irq_can_handle_actions() and mask_irq() test, so
+			 * the normal path - an owned, enabled interrupt - is
+			 * still cleared by ->irq_mask() as before.
+			 */
+			if (!irqd || irqd_irq_disabled(irqd) ||
+			    irqd_irq_masked(irqd))
+				spacemit_pinctrl_clear_latch(pctrl, hwirq);
+
+			if (virq)
+				generic_handle_irq(virq);
 		}
 	}
 
