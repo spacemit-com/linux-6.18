@@ -951,8 +951,14 @@ static int spacemit_pinctrl_wakeirq_set_type(struct irq_data *d, unsigned int fl
 	else
 		dev_err(pctrl->dev, "Unsupported flow type: %d", flow_type);
 
-	value &= ~PAD_EDGE_CLEAR;
-
+	/*
+	 * PAD_EDGE_CLEAR is left alone here: it is owned by ->irq_mask() and
+	 * ->irq_unmask(), so that the pad is only released once genirq has
+	 * actually enabled the interrupt.  Releasing it from set_type() arms
+	 * the pin while the descriptor may still be masked - which is the case
+	 * for a dedicated wake IRQ, requested with IRQF_NO_AUTOEN - and then
+	 * the only code that clears a latched edge is never reached.
+	 */
 	writel(value, reg);
 
 	return 0;
