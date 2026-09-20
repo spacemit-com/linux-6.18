@@ -2685,8 +2685,10 @@
 				#address-cells = <1>;
 				#size-cells = <1>;
 				reg = <0x104 0x20>;
-				resets = <&syscon_apmu RESET_APMU_AES_WTM>;
-				reset-names = "aes_reset";
+				/* no resets: asserting RESET_APMU_AES_WTM would wipe
+				 * RNG/TE200 state owned by OP-TEE. The clock is kept
+				 * registered as CLK_IS_CRITICAL, so no consumer or
+				 * unused-clock sweep can gate it */
 				clocks = <&syscon_apmu CLK_APMU_AES_WTM>;
 				clock-names = "aes_core";
 				status = "okay";
@@ -2702,8 +2704,10 @@
 				#address-cells = <1>;
 				#size-cells = <1>;
 				reg = <0x190 0x20>;
-				resets = <&syscon_apmu RESET_APMU_AES_WTM>;
-				reset-names = "aes_reset";
+				/* no resets: asserting RESET_APMU_AES_WTM would wipe
+				 * RNG/TE200 state owned by OP-TEE. The clock is kept
+				 * registered as CLK_IS_CRITICAL, so no consumer or
+				 * unused-clock sweep can gate it */
 				clocks = <&syscon_apmu CLK_APMU_AES_WTM>;
 				clock-names = "aes_core";
 				status = "okay";
