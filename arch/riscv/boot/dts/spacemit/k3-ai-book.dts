@@ -1,0 +1,1295 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
+/* Copyright (c) 2025 Spacemit, Inc */
+
+#include "k3.dtsi"
+#include "k3-rdomain.dtsi"
+#include "k3-pinctrl.dtsi"
+#include "k3_opp_table.dtsi"
+#include "k3-edp0.dtsi"
+#include "k3-dp1.dtsi"
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/input/cros-ec-keyboard.h>
+
+/ {
+	model = "SpacemiT K3 AI-Book";
+	compatible = "spacemit,k3-ai-book", "spacemit,k3";
+	cpus: cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		timebase-frequency = <24000000>;
+	};
+	chosen {
+		bootargs = "earlycon=sbi console=ttyS0,115200 loglevel=8 random.trust_bootloader=1";
+		rng-seed = <0x25d69b2 0xff555073 0xd23238ea 0x57aa5455 0x792478ed 0xa744f28e 0x6ba4fc54 0xa2bf20fc>;
+		stdout-path = "serial0:115200";
+	};
+
+	fan0: pwm-fan {
+		compatible = "pwm-fan";
+		pwms = <&cros_ec_pwm 0>;
+		/*
+		 * Cooling states (0-8) -> PWM duty (0-255)
+		 * Full speed is treated as ~6000RPM.
+		 * Custom ramp to balance noise and thermals
+		 */
+		/* Keep headroom by capping max duty below 255. */
+		cooling-levels = <0 30 60 90 120 140 179 204 242>;
+		#cooling-cells = <2>;
+	};
+
+	vcc_wifi_pwr: vcc-wifi-pwr {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_wifi_3v3";
+		gpio = <&gpio 1 9 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		regulator-always-on;
+		regulator-boot-on;
+		pinctrl-names = "default";
+		pinctrl-0 = <&rfkill_gpio_cfg>;
+	};
+
+	rfkill_wlan: rfkill-wlan {
+		compatible = "rfkill-gpio";
+		label = "spacemit-wlan";
+		radio-type = "wlan";
+		shutdown-gpios = <&gpio 1 3 GPIO_ACTIVE_HIGH>;
+		dev-pwr-supply = <&vcc_wifi_pwr>;
+		status = "okay";
+	};
+
+	vcc_cam_dmic: vcc-cam-dmic {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_cam_dmic";
+		gpio = <&gpio 3 4 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+
+		regulator-always-on;
+		regulator-boot-on;
+
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_dmic_cfg>;
+	};
+
+	backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm18 0 20000 0>;
+		brightness-levels = <
+			  0  20  20  20  21  21  21  21
+			 22  22  22  22  23  23  23  24
+			 24  24  25  25  25  26  26  27
+			 27  28  28  29  29  30  30  31
+			 31  32  32  33  33  34  34  35
+			 36  36  37  38  38  39  40  41
+			 41  42  43  44  45  45  46  47
+			 48  49  50  51  52  53  54  55
+			 56  57  58  59  60  61  62  63
+			 64  65  67  68  69  70  72  73
+			 74  75  77  78  79  81  82  84
+			 85  87  88  90  91  93  94  96
+			 98  99 101 103 104 106 108 110
+			112 113 115 117 119 121 123 125
+			127 129 131 133 135 137 139 141
+			143 145 147 149 152 154 156 158
+			161 163 165 168 170 173 175 178
+			180 183 186 188 191 194 196 199
+			202 205 208 210 213 216 219 222
+			225 228 231 234 238 241 244 247
+			251 255
+		>;
+		default-brightness-level = <128>;
+		status = "okay";
+	};
+
+};
+
+&resmem {
+	/* global autoconfigured region for contiguous allocations */
+	cmamem: linux,cma {
+		compatible = "shared-dma-pool";
+		reusable;
+		size = <0 0x20000000>;
+		alloc-ranges = <1 0x40000000 0 0x20000000>;
+		linux,cma-default;
+	};
+
+	pcie_dma_pool: pcie-dma-pool@1f0000000 {
+		compatible = "restricted-dma-pool";
+		reg = <0x1 0xf0000000 0x0 0x02000000>;
+	};
+};
+
+&pinctrl {
+	i2c2-1-cfg {
+		i2c2-0-pins {
+			power-source = <1800>;
+		};
+	};
+
+	i2c1-3-cfg {
+		i2c1-0-pins {
+			power-source = <3300>;
+		};
+	};
+
+	i2c3-1-cfg {
+		i2c3-0-pins {
+			power-source = <3300>;
+		};
+	};
+
+	i2c4-1-cfg {
+		i2c4-0-pins {
+			power-source = <3300>;
+		};
+	};
+
+	qspi-cfg {
+		qspi-pins {
+			power-source = <1800>;
+		};
+	};
+
+	qspi-cs0-cfg {
+		qspi-cs0-pins {
+			power-source = <1800>;
+		};
+	};
+
+	pcie0-1-cfg {
+		pcie0-0-pins {
+			pinmux = <K3_PADCONF(79, 5)>,
+				 <K3_PADCONF(81, 5)>;
+
+			bias-pull-up;
+			drive-strength = <33>;
+			power-source = <1800>;
+		};
+	};
+
+	pcie4-1-cfg {
+		pcie4-0-pins {
+			bias-pull-up;
+			drive-strength = <33>;
+			power-source = <1800>;
+		};
+	};
+
+	sspa1_1_cfg: sspa1-1-cfg {
+		sspa1-0-pins {
+			power-source = <3300>;
+		};
+	};
+
+	rfkill_gpio_cfg: rfkill-gpio-cfg {
+		rfkill-pins {
+			pinmux = <K3_PADCONF(35, 0)>,	/* WLAN_EN_3V3: gpio35 */
+				 <K3_PADCONF(41, 0)>;	/* WLAN_PWREN: gpio41 */
+			bias-pull-up;
+			drive-strength = <25>;
+			power-source = <3300>;
+		};
+	};
+
+	hub_reset_cfg: hub-reset-cfg {
+		hub-reset-pins {
+			pinmux = <K3_PADCONF(4, 0)>;	/* U2_HUB_RST_N: gpio4 */
+			bias-pull-up;
+			drive-strength = <25>;
+			power-source = <3300>;
+		};
+	};
+
+	bt_reset_cfg: bt-reset-cfg {
+		bt-reset-pins {
+			pinmux = <K3_PADCONF(30, 0)>;	/* BT_EN_3V3: gpio30 */
+			bias-pull-up;
+			drive-strength = <33>;
+			power-source = <3300>;
+		};
+	};
+
+	cam_dmic_cfg: cam-dmic-cfg {
+		cam-dmic-pins {
+			pinmux = <K3_PADCONF(100, 0)>;	/* gpio[5]_100 */
+			bias-pull-up;
+			drive-strength = <33>;
+			power-source = <3300>;
+		};
+	};
+
+	dp0_hpd_cfg: dp0-hpd-cfg {
+		dp0-hpd-pins {
+			pinmux = <K3_PADCONF(23, 6)>;	/* dp0 hpd */
+
+			bias-pull-down;
+			drive-strength = <25>;		/* DS8 */
+			power-source = <3300>;
+		};
+	};
+
+	edp0_pwr_cfg: edp0-pwr-cfg {
+		edp0-pwr-pins {
+			pinmux = <K3_PADCONF(101, 0)>;	/* SOC_eDP0_PWR_EN_3V3: gpio101 */
+
+			bias-pull-down;
+			drive-strength = <25>;
+			power-source = <3300>;
+		};
+	};
+
+	dp1_hpd_cfg: dp1-hpd-cfg {
+		dp1-hpd-pins {
+			pinmux = <K3_PADCONF(24, 6)>;	/* dp1 hpd */
+
+			bias-pull-down;
+			drive-strength = <25>;		/* DS8 */
+			power-source = <3300>;
+		};
+	};
+
+	dp1_rst_cfg: dp1-rst-cfg {
+		dp1-rst-pins {
+			pinmux = <K3_PADCONF(99, 0)>;	/* DP1_RST_N: gpio99 */
+
+			bias-pull-up;
+			drive-strength = <25>;
+			power-source = <3300>;
+		};
+	};
+
+	pwm18_2_cfg: pwm18-2-cfg {
+		pwm18-0-pins {
+			pinmux = <K3_PADCONF(106, 6)>;	/* pwm18 */
+
+			bias-pull-up;			/* normal pull-up */
+			drive-strength = <25>;		/* DS8 */
+			power-source = <3300>;
+		};
+	};
+
+	touchpad-int-cfg {
+		touchpad-int-pins {
+			pinmux = <K3_PADCONF(10, 0)>;	/* TP_INT_N: gpio10 */
+
+			bias-pull-up;
+			drive-strength = <25>;
+			power-source = <3300>;
+		};
+	};
+
+	tp_en_cfg: tp-en-cfg {
+		tp-en-pins {
+			pinmux = <K3_PADCONF(9, 0)>;	/* TP_EN_N: gpio9 */
+
+			bias-pull-down;
+			drive-strength = <25>;
+			power-source = <3300>;
+		};
+	};
+
+	es8326_spk_cfg: es8326-spk-cfg {
+		es8326-spk-pins {
+			pinmux = <K3_PADCONF(119, 0)>;	/* PA_SHUTDOWN: gpio119 */
+
+			bias-pull-down;
+			drive-strength = <25>;
+			power-source = <3300>;
+		};
+	};
+
+	es8326_irq_cfg: es8326-irq-cfg {
+		es8326-irq-pins {
+			pinmux = <K3_PADCONF(127, 0)>;	/* CODEC_IRQ_3V3: gpio127 */
+
+			bias-pull-up;
+			drive-strength = <25>;
+			power-source = <3300>;
+		};
+	};
+
+	ec_int_cfg: ec-int-cfg {
+		ec-int-pins {
+			pinmux = <K3_PADCONF(43, 0)>;	/* EC_CPU_INT_N: gpio43 */
+
+			bias-pull-up;
+			drive-strength = <25>;
+		};
+	};
+};
+
+&uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_0_cfg>;
+	status = "okay";
+};
+
+&qspi {
+	pinctrl-names = "default";
+	pinctrl-0 = <&qspi_cfg &qspi_cs0_cfg>;
+	status = "okay";
+
+	flash@0 {
+		compatible = "jedec,spi-nor";
+		reg = <0>;
+		spi-max-frequency = <26500000>;
+		m25p,fast-read;
+		broken-flash-reset;
+		status = "okay";
+	};
+};
+
+&usb2_host_u2phy {
+	status = "okay";
+};
+
+&usb2_host {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	reset-on-resume;
+	pinctrl-names = "default";
+	pinctrl-0 = <&hub_reset_cfg>,<&bt_reset_cfg>;
+	status = "okay";
+
+	/* Ensure no deferred probe cause USB disconnect */
+	/* For BT, FG, CAM */
+	hub@1 {
+		/* FE1.1S USB2.0 hub (4 ports) */
+		compatible = "usb5e3,608";
+		reg = <1>;
+		reset-gpios = <&gpio 0 4 GPIO_ACTIVE_LOW>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		bluetooth@2 {
+			/* RTL8852BE, reset must be deasserted before enumeration */
+			compatible = "usbbda,b85b";
+			reg = <2>;
+			vdd-supply = <&p3v3>;
+			reset-gpios = <&gpio 0 30 GPIO_ACTIVE_LOW>;
+		};
+	};
+};
+
+&usb3_porta_u2phy {
+	status = "okay";
+};
+
+&usb3_porta_u3phy {
+	status = "okay";
+};
+
+&usb3_porta {
+	/* TypeC (USB3/Power) (with ANX7447 chip) */
+	dr_mode = "otg";
+	usb-role-switch;
+	role-switch-default-mode = "host";
+	reset-on-resume;
+	status = "okay";
+};
+
+&usb3_portb_u2phy {
+	status = "okay";
+};
+
+&usb3_portb_u3phy {
+	status = "okay";
+};
+
+&usb3_portb {
+	/* TypeC (USB3/Power) (with ANX7447 chip) */
+	status = "okay";
+};
+
+&usb3_portc_u2phy {
+	status = "okay";
+};
+
+&usb3_portc_u3phy {
+	status = "okay";
+};
+
+&usb3_portc {
+	/* TypeA */
+	reset-on-resume;
+	status = "okay";
+};
+
+&usb3_portd_u2phy {
+	status = "okay";
+};
+
+&usb3_portd_u3phy {
+	status = "okay";
+};
+
+&usb3_portd {
+	/* TypeA */
+	status = "okay";
+};
+
+&ufshc {
+	status = "okay";
+};
+
+&phy0 {
+	status = "okay";
+};
+
+&phy1 {
+	status = "okay";
+};
+
+&phy2 {
+	status = "disabled";
+};
+
+&phy3 {
+	status = "disabled";
+};
+
+&phy5 {
+	status = "okay";
+};
+
+&pcie0_rc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie0_1_cfg>;
+	phys = <&phy0>, <&phy1>;
+	phy-names = "phy0", "phy1";
+	num-lanes = <4>;
+	status = "okay";
+};
+
+&pcie4_rc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pcie4_1_cfg>;
+	phys = <&phy5>;
+	phy-names = "phy0";
+	dma-ranges = <0x02000000 0x0 0x80000000 0x1 0xf0000000 0x0 0x02000000>;
+	memory-region = <&pcie_dma_pool>;
+	status = "okay";
+};
+
+&espi0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&espi0_2_cfg>;
+	status = "okay";
+	ec: ec@0 {
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&ec_int_cfg>;
+		interrupt-parent = <&gpio>;
+		interrupts = <1 11 IRQ_TYPE_EDGE_RISING>;
+		gpio-controller;
+		#gpio-cells = <2>;
+
+		i2c_tunnel1: i2c-tunnel@1 {
+			compatible = "google,cros-ec-i2c-tunnel";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			google,remote-bus = <1>;
+		};
+
+		i2c_tunnel4: i2c-tunnel@4 {
+			compatible = "google,cros-ec-i2c-tunnel";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			google,remote-bus = <4>;
+
+			battery: battery@b {
+				compatible = "sbs,sbs-battery";
+				reg = <0x0b>;
+				sbs,i2c-retry-count = <2>;
+				sbs,poll-retry-count = <10>;
+				status = "okay";
+			};
+		};
+
+		/* EC PWM provider for fan control */
+		cros_ec_pwm: pwm {
+			compatible = "google,cros-ec-pwm";
+			#pwm-cells = <1>;
+		};
+
+		keyboard {
+			compatible = "google,cros-ec-keyb";
+			keypad,num-rows = <8>;
+			keypad,num-columns = <16>;
+			linux,keymap = <
+			/* Row 0 */
+			MATRIX_KEY(0x00, 0x00, KEY_C)           /* ID: 48 */
+			MATRIX_KEY(0x00, 0x01, KEY_DELETE)      /* ID: 76 */
+			MATRIX_KEY(0x00, 0x02, KEY_Q)           /* ID: 17 */
+			MATRIX_KEY(0x00, 0x03, KEY_RIGHTALT)    /* ID: 62 */
+			MATRIX_KEY(0x00, 0x05, KEY_X)           /* ID: 47 */
+			MATRIX_KEY(0x00, 0x06, KEY_V)           /* ID: 49 */
+			MATRIX_KEY(0x00, 0x07, KEY_M)           /* ID: 52 */
+			MATRIX_KEY(0x00, 0x08, KEY_DOT)         /* ID: 54 */
+			MATRIX_KEY(0x00, 0x09, KEY_RIGHTSHIFT)  /* ID: 57 */
+			MATRIX_KEY(0x00, 0x0a, KEY_COMMA)       /* ID: 53 */
+			MATRIX_KEY(0x00, 0x0c, KEY_RIGHTCTRL)   /* ID: 64 */
+			MATRIX_KEY(0x00, 0x0d, KEY_SLASH)       /* ID: 55 */
+			MATRIX_KEY(0x00, 0x0e, KEY_APOSTROPHE)  /* ID: 41 (' ) */
+
+			/* Row 1 */
+			MATRIX_KEY(0x01, 0x03, KEY_LEFTALT)     /* ID: 60 */
+			MATRIX_KEY(0x01, 0x04, KEY_SPACE)       /* ID: 61 */
+			MATRIX_KEY(0x01, 0x05, KEY_Z)           /* ID: 46 */
+			MATRIX_KEY(0x01, 0x06, KEY_B)           /* ID: 50 */
+			MATRIX_KEY(0x01, 0x07, KEY_N)           /* ID: 51 */
+			MATRIX_KEY(0x01, 0x08, KEY_DOWN)        /* ID: 84-1 */
+			MATRIX_KEY(0x01, 0x09, KEY_LEFTSHIFT)   /* ID: 44 */
+			MATRIX_KEY(0x01, 0x0c, KEY_LEFTCTRL)    /* ID: 58 */
+			MATRIX_KEY(0x01, 0x0d, KEY_UP)          /* ID: 83-1 */
+			MATRIX_KEY(0x01, 0x0e, KEY_ENTER)       /* ID: 43 */
+			MATRIX_KEY(0x01, 0x0f, KEY_F8)          /* ID: 119 */
+
+			/* Row 2 */
+			MATRIX_KEY(0x02, 0x02, KEY_FN)          /* ID: 59 */
+			MATRIX_KEY(0x02, 0x04, KEY_E)           /* ID: 19 */
+			MATRIX_KEY(0x02, 0x05, KEY_F2)          /* ID: 113 */
+			MATRIX_KEY(0x02, 0x06, KEY_G)           /* ID: 35 */
+			MATRIX_KEY(0x02, 0x07, KEY_H)           /* ID: 36 */
+			MATRIX_KEY(0x02, 0x08, KEY_BACKSLASH)   /* ID: 29/42 */
+			MATRIX_KEY(0x02, 0x0a, KEY_F7)          /* ID: 118 */
+			MATRIX_KEY(0x02, 0x0d, KEY_MINUS)       /* ID: 12 */
+			MATRIX_KEY(0x02, 0x0f, KEY_RIGHT)       /* ID: 89-1 */
+
+			/* Row 3 */
+			MATRIX_KEY(0x03, 0x01, KEY_LEFTMETA)    /* ID: 127 (Win) */
+			MATRIX_KEY(0x03, 0x02, KEY_TAB)         /* ID: 16 */
+			MATRIX_KEY(0x03, 0x04, KEY_F4)          /* ID: 115 */
+			MATRIX_KEY(0x03, 0x05, KEY_F1)          /* ID: 112 */
+			MATRIX_KEY(0x03, 0x06, KEY_T)           /* ID: 21 */
+			MATRIX_KEY(0x03, 0x07, KEY_Y)           /* ID: 22 */
+			MATRIX_KEY(0x03, 0x08, KEY_O)           /* ID: 25 */
+			MATRIX_KEY(0x03, 0x0a, KEY_F6)          /* ID: 117 */
+			MATRIX_KEY(0x03, 0x0b, KEY_F9)          /* ID: 120 */
+			MATRIX_KEY(0x03, 0x0d, KEY_F12)         /* ID: 123 */
+
+			/* Row 4 */
+			MATRIX_KEY(0x04, 0x02, KEY_GRAVE)       /* ID: 1 (~) */
+			MATRIX_KEY(0x04, 0x04, KEY_CAPSLOCK)    /* ID: 30 */
+			MATRIX_KEY(0x04, 0x05, KEY_S)           /* ID: 32 */
+			MATRIX_KEY(0x04, 0x06, KEY_5)           /* ID: 6 */
+			MATRIX_KEY(0x04, 0x07, KEY_6)           /* ID: 7 */
+			MATRIX_KEY(0x04, 0x08, KEY_F10)         /* ID: 121 */
+			MATRIX_KEY(0x04, 0x0a, KEY_F5)          /* ID: 116 */
+			MATRIX_KEY(0x04, 0x0d, KEY_0)           /* ID: 11 */
+			MATRIX_KEY(0x04, 0x0e, KEY_EQUAL)       /* ID: 13 */
+
+			/* Row 5 */
+			MATRIX_KEY(0x05, 0x02, KEY_1)           /* ID: 2 */
+			MATRIX_KEY(0x05, 0x04, KEY_3)           /* ID: 4 */
+			MATRIX_KEY(0x05, 0x05, KEY_2)           /* ID: 3 */
+			MATRIX_KEY(0x05, 0x06, KEY_4)           /* ID: 5 */
+			MATRIX_KEY(0x05, 0x07, KEY_7)           /* ID: 8 */
+			MATRIX_KEY(0x05, 0x08, KEY_9)           /* ID: 10 */
+			MATRIX_KEY(0x05, 0x0a, KEY_8)           /* ID: 9 */
+			MATRIX_KEY(0x05, 0x0b, KEY_102ND)       /* ID: 45 */
+			MATRIX_KEY(0x05, 0x0d, KEY_P)           /* ID: 26 */
+			MATRIX_KEY(0x05, 0x0e, KEY_BACKSPACE)   /* ID: 15 */
+
+			/* Row 6 */
+			MATRIX_KEY(0x06, 0x04, KEY_F3)          /* ID: 114 */
+			MATRIX_KEY(0x06, 0x05, KEY_W)           /* ID: 18 */
+			MATRIX_KEY(0x06, 0x06, KEY_R)           /* ID: 20 */
+			MATRIX_KEY(0x06, 0x07, KEY_U)           /* ID: 23 */
+			MATRIX_KEY(0x06, 0x08, KEY_F11)         /* ID: 122 */
+			MATRIX_KEY(0x06, 0x0a, KEY_I)           /* ID: 24 */
+			MATRIX_KEY(0x06, 0x0b, KEY_LEFT)        /* ID: 79-1 */
+			MATRIX_KEY(0x06, 0x0d, KEY_LEFTBRACE)   /* ID: 27 ([) */
+			MATRIX_KEY(0x06, 0x0e, KEY_RIGHTBRACE)  /* ID: 28 (]) */
+
+			/* Row 7 */
+			MATRIX_KEY(0x07, 0x02, KEY_A)           /* ID: 31 */
+			MATRIX_KEY(0x07, 0x05, KEY_ESC)         /* ID: 110 */
+			MATRIX_KEY(0x07, 0x06, KEY_F)           /* ID: 34 */
+			MATRIX_KEY(0x07, 0x07, KEY_J)           /* ID: 37 */
+			MATRIX_KEY(0x07, 0x08, KEY_L)           /* ID: 39 */
+			MATRIX_KEY(0x07, 0x0a, KEY_K)           /* ID: 38 */
+			MATRIX_KEY(0x07, 0x0d, KEY_SEMICOLON)   /* ID: 40 */
+			MATRIX_KEY(0x07, 0x0e, KEY_D)           /* ID: 33 */
+
+			/*
+			 * Fn layer (row + 8):
+			 *  F1..F12 -> media/system keys when Fn is held.
+			 */
+			MATRIX_KEY(0x08, 0x01, KEY_INSERT)        /* Fn+Delete = Insert */
+			MATRIX_KEY(0x09, 0x08, KEY_PAGEDOWN)      /* Fn+Down */
+			MATRIX_KEY(0x09, 0x0d, KEY_PAGEUP)        /* Fn+Up */
+			MATRIX_KEY(0x09, 0x0f, KEY_BRIGHTNESSUP)  /* Fn+F8 */
+			MATRIX_KEY(0x0a, 0x05, KEY_VOLUMEDOWN)    /* Fn+F2 */
+			MATRIX_KEY(0x0a, 0x0a, KEY_BRIGHTNESSDOWN)/* Fn+F7 */
+			MATRIX_KEY(0x0a, 0x0f, KEY_END)           /* Fn+Right */
+			MATRIX_KEY(0x0b, 0x04, KEY_PREVIOUSSONG)  /* Fn+F4 */
+			MATRIX_KEY(0x0b, 0x05, KEY_MUTE)          /* Fn+F1 */
+			MATRIX_KEY(0x0b, 0x0a, KEY_NEXTSONG)      /* Fn+F6 */
+			MATRIX_KEY(0x0b, 0x0b, KEY_SWITCHVIDEOMODE)/* Fn+F9 */
+			MATRIX_KEY(0x0b, 0x0d, KEY_CONFIG)        /* Fn+F12 */
+			MATRIX_KEY(0x0c, 0x08, KEY_RFKILL)        /* Fn+F10 */
+			MATRIX_KEY(0x0c, 0x0a, KEY_PLAYPAUSE)     /* Fn+F5 */
+			MATRIX_KEY(0x0e, 0x04, KEY_VOLUMEUP)      /* Fn+F3 */
+			MATRIX_KEY(0x0e, 0x08, KEY_SYSRQ)         /* Fn+F11 */
+			MATRIX_KEY(0x0e, 0x0b, KEY_HOME)          /* Fn+Left */
+			>;
+		};
+	};
+};
+
+&ec_master {
+	status = "okay";
+};
+
+&thermal_zones {
+	thermal_top {
+		polling-delay = <1000>;
+		polling-delay-passive = <500>;
+		thermal-sensors = <&thermal 0>;
+
+		trips {
+			thermal_top_trip0: thermal_top-trip0 {
+				temperature = <45000>;
+				hysteresis = <2000>;
+				type = "active";
+			};
+		};
+	};
+
+	thermal_vpu {
+		polling-delay = <1000>;
+		polling-delay-passive = <500>;
+		thermal-sensors = <&thermal 2>;
+
+		trips {
+			thermal_vpu_trip0: thermal_vpu-trip0 {
+				temperature = <60000>;
+				hysteresis = <2000>;
+				type = "active";
+			};
+		};
+	};
+
+	thermal_gpu {
+		polling-delay = <1000>;
+		polling-delay-passive = <500>;
+		thermal-sensors = <&thermal 3>;
+
+		trips {
+			gpu_alert0: gpu-alert0 {
+				temperature = <65000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			gpu_alert1: gpu-alert1 {
+				temperature = <75000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			gpu_alert2: gpu-alert2 {
+				temperature = <85000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			gpu_crit: gpu-crit {
+				temperature = <115000>;
+				hysteresis = <2000>;
+				type = "critical";
+			};
+		};
+
+		cooling-maps {
+			map0 {
+				trip = <&gpu_alert0>;
+				cooling-device = <&imggpu 0 1>;
+			};
+
+			map1 {
+				trip = <&gpu_alert1>;
+				cooling-device = <&imggpu 2 3>;
+			};
+
+			map2 {
+				trip = <&gpu_alert2>;
+				cooling-device = <&imggpu 4 5>;
+			};
+		};
+	};
+
+	thermal_cluster0 {
+		polling-delay = <1000>;
+		polling-delay-passive = <500>;
+		thermal-sensors = <&thermal 4>;
+
+		trips {
+			thermal_cluster0_trip0: thermal_cluster0-trip0 {
+				temperature = <45000>;
+				hysteresis = <2000>;
+				type = "active";
+			};
+
+			thermal_cluster0_trip1: thermal_cluster0-trip1 {
+				temperature = <55000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			thermal_cluster0_trip2: thermal_cluster0-trip2 {
+				temperature = <65000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			thermal_cluster0_trip3: thermal_cluster0-trip3 {
+				temperature = <75000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			thermal_cluster0_trip4: thermal_cluster0-trip4 {
+				temperature = <78000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			thermal_cluster0_trip5: thermal_cluster0-trip5 {
+				temperature = <82000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			thermal_cluster0_trip6: thermal_cluster0-trip6 {
+				temperature = <85000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			thermal_cluster0_trip7: thermal_cluster0-trip7 {
+				temperature = <88000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+		};
+
+		cooling-maps {
+			map0 {
+				trip = <&thermal_cluster0_trip0>;
+				cooling-device = <&fan0 0 1>;
+			};
+
+			map1 {
+				trip = <&thermal_cluster0_trip1>;
+				cooling-device = <&fan0 2 3>;
+			};
+
+			map2 {
+				trip = <&thermal_cluster0_trip2>;
+				cooling-device = <&fan0 3 4>;
+			};
+
+			map3 {
+				trip = <&thermal_cluster0_trip3>;
+				cooling-device = <&fan0 4 4>;
+			};
+
+			map4 {
+				trip = <&thermal_cluster0_trip4>;
+				cooling-device = <&fan0 5 5>;
+			};
+
+			map5 {
+				trip = <&thermal_cluster0_trip5>;
+				cooling-device = <&fan0 6 6>;
+			};
+
+			map6 {
+				trip = <&thermal_cluster0_trip6>;
+				cooling-device = <&fan0 7 7>;
+			};
+
+			map7 {
+				trip = <&thermal_cluster0_trip7>;
+				cooling-device = <&fan0 8 8>;
+			};
+		};
+	};
+
+	thermal_cluster1 {
+		polling-delay = <1000>;
+		polling-delay-passive = <250>;
+		thermal-sensors = <&thermal 5>;
+
+		trips {
+			thermal_cluster1_trip0: thermal_cluster1-trip0 {
+				temperature = <85000>;
+				hysteresis = <2000>;
+				type = "active";
+			};
+
+			thermal_cluster1_trip1: thermal_cluster1-trip1 {
+				temperature = <95000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			thermal_cluster1_trip2: thermal_cluster1-trip2 {
+				temperature = <105000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			thermal_cluster1_trip3: thermal_cluster1-trip3 {
+				temperature = <115000>;
+				hysteresis = <2000>;
+				type = "critical";
+			};
+		};
+
+		cooling-maps {
+			map0 {
+				trip = <&thermal_cluster1_trip0>;
+				cooling-device = <&cpu_0 2 2>,
+						<&cpu_1 2 2>,
+						<&cpu_2 2 2>,
+						<&cpu_3 2 2>,
+						<&cpu_4 2 2>,
+						<&cpu_5 2 2>,
+						<&cpu_6 2 2>,
+						<&cpu_7 2 2>;
+			};
+
+			map1 {
+				trip = <&thermal_cluster1_trip1>;
+				cooling-device = <&cpu_0 3 5>,
+						<&cpu_1 3 5>,
+						<&cpu_2 3 5>,
+						<&cpu_3 3 5>,
+						<&cpu_4 3 5>,
+						<&cpu_5 3 5>,
+						<&cpu_6 3 5>,
+						<&cpu_7 3 5>;
+			};
+
+			map2 {
+				trip = <&thermal_cluster1_trip2>;
+				cooling-device = <&cpu_0 6 8>,
+						<&cpu_1 6 8>,
+						<&cpu_2 6 8>,
+						<&cpu_3 6 8>,
+						<&cpu_4 6 8>,
+						<&cpu_5 6 8>,
+						<&cpu_6 6 8>,
+						<&cpu_7 6 8>;
+			};
+		};
+	};
+
+	thermal_cluster2 {
+		polling-delay = <1000>;
+		polling-delay-passive = <250>;
+		thermal-sensors = <&thermal 6>;
+
+		trips {
+			thermal_cluster2_trip0: thermal_cluster2-trip0 {
+				temperature = <85000>;
+				hysteresis = <2000>;
+				type = "active";
+			};
+
+			thermal_cluster2_trip1: thermal_cluster2-trip1 {
+				temperature = <95000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			thermal_cluster2_trip2: thermal_cluster2-trip2 {
+				temperature = <105000>;
+				hysteresis = <2000>;
+				type = "passive";
+			};
+
+			thermal_cluster2_trip3: thermal_cluster2-trip3 {
+				temperature = <115000>;
+				hysteresis = <2000>;
+				type = "critical";
+			};
+		};
+
+		cooling-maps {
+			map0 {
+				trip = <&thermal_cluster2_trip0>;
+				cooling-device = <&cpu_8 3 3>,
+						<&cpu_9 3 3>,
+						<&cpu_10 3 3>,
+						<&cpu_11 3 3>,
+						<&cpu_12 3 3>,
+						<&cpu_13 3 3>,
+						<&cpu_14 3 3>,
+						<&cpu_15 3 3>;
+			};
+
+			map1 {
+				trip = <&thermal_cluster2_trip1>;
+				cooling-device = <&cpu_8 4 5>,
+						<&cpu_9 4 5>,
+						<&cpu_10 4 5>,
+						<&cpu_11 4 5>,
+						<&cpu_12 4 5>,
+						<&cpu_13 4 5>,
+						<&cpu_14 4 5>,
+						<&cpu_15 4 5>;
+			};
+
+			map2 {
+				trip = <&thermal_cluster2_trip2>;
+				cooling-device = <&cpu_8 6 8>,
+						<&cpu_9 6 8>,
+						<&cpu_10 6 8>,
+						<&cpu_11 6 8>,
+						<&cpu_12 6 8>,
+						<&cpu_13 6 8>,
+						<&cpu_14 6 8>,
+						<&cpu_15 6 8>;
+			};
+		};
+	};
+
+	thermal_cluster3 {
+		polling-delay = <1000>;
+		polling-delay-passive = <250>;
+		thermal-sensors = <&thermal 7>;
+
+		trips {
+			thermal_cluster7_trip0: thermal_cluster7-trip0 {
+				temperature = <40000>;
+				hysteresis = <5000>;
+				type = "passive";
+			};
+		};
+	};
+};
+
+&rpmi_regulator {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c8_cfg_rcpu>;
+
+	pvin: pvin {
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	edcdc2: edcdc2 {
+		regulator-min-microvolt = <800000>;
+		regulator-max-microvolt = <800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	edcdc1: edcdc1 {
+		regulator-min-microvolt = <534000>;
+		regulator-max-microvolt = <1000000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	p3v3: p3v3 {
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	p1v8: p1v8 {
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dcdc1: dcdc1 {
+		regulator-min-microvolt = <1050000>;
+		regulator-max-microvolt = <1050000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dcdc3: dcdc3 {
+		regulator-min-microvolt = <800000>;
+		regulator-max-microvolt = <800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dcdc4: dcdc4 {
+		regulator-min-microvolt = <2100000>;
+		regulator-max-microvolt = <2100000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dcdc5: dcdc5 {
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dcdc6: dcdc6 {
+		regulator-min-microvolt = <500000>;
+		regulator-max-microvolt = <600000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	aldo1: aldo1 {
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	aldo2: aldo2 {
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	aldo3: aldo3 {
+		regulator-min-microvolt = <500000>;
+		regulator-max-microvolt = <3400000>;
+	};
+
+	aldo4: aldo4 {
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dldo1: dldo1 {
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dldo2: dldo2 {
+		regulator-min-microvolt = <900000>;
+		regulator-max-microvolt = <900000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dldo3: dldo3 {
+		regulator-min-microvolt = <800000>;
+		regulator-max-microvolt = <800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dldo4: dldo4 {
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dldo5: dldo5 {
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dldo6: dldo6 {
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dldo7: dldo7 {
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	pwr_x100: pwr_x100 {
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	pwr_a100: pwr_a100 {
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	pwr_ext: pwr_ext {
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+};
+
+&i2c1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c1_3_cfg>;
+	status = "okay";
+
+};
+
+&i2c2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c2_1_cfg>;
+	status = "okay";
+
+	eeprom@50 {
+		compatible = "atmel,24c02";
+		reg = <0x50>;
+		read-only;
+		status = "okay";
+
+		nvmem-layout {
+			compatible = "onie,tlv-layout";
+
+			product_name: product-name {
+			};
+		};
+	};
+};
+
+&i2c3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c3_1_cfg>;
+	status = "okay";
+
+	es8326: es8326@19{
+		compatible = "everest,es8326";
+		reg = <0x19>;
+		#sound-dai-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&es8326_spk_cfg>, <&es8326_irq_cfg>;
+		interrupt-parent = <&gpio>;
+		interrupts = <3 31 IRQ_TYPE_EDGE_RISING>;
+		spk-ctl-gpio = <&gpio 3 23 0>;
+		everest,mic1-src = [44];
+		everest,mic2-src = [66];
+		everest,jack-detect-inverted;
+		status = "okay";
+	};
+};
+
+&i2c4 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c4_1_cfg>;
+	status = "okay";
+
+	touchpad: hid@2c {
+		compatible = "hid-over-i2c";
+		reg = <0x2c>;
+		hid-descr-addr = <0x0020>;
+		post-power-on-delay-ms = <200>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touchpad_int_cfg>, <&tp_en_cfg>;
+		reset-gpios = <&gpio 0 9 GPIO_ACTIVE_HIGH>;
+		interrupt-parent = <&gpio>;
+		interrupts = <0 10 IRQ_TYPE_EDGE_FALLING>;
+		status = "okay";
+	};
+
+};
+
+&pwm18 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm18_2_cfg>;
+	status = "okay";
+};
+
+&dpu0_crtc0 {
+	memory-region = <&dpu_resv0>;
+	status = "okay";
+};
+
+&edp0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&dp0_hpd_cfg>, <&edp0_pwr_cfg>;
+	backlight = <&backlight>;
+	gpios-power = <101>;
+	status = "okay";
+};
+
+&dpu1_crtc0 {
+	memory-region = <&dpu_resv1>;
+	status = "okay";
+};
+
+&dp1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&dp1_hpd_cfg>, <&dp1_rst_cfg>;
+	gpios-enable = <99>;
+	status = "okay";
+};
+
+&adma3 {
+	status = "okay";
+};
+
+&ri2s3 {
+	status = "okay";
+};
+
+&sound_card_dp1 {
+	status = "okay";
+	simple-audio-card,name = "snd-dp1";
+	simple-audio-card,mclk-fs = <512>;
+	simple-audio-card,dai-link@0 {
+		format = "left_j";
+		frame-master = <&dp1_link_cpu>;
+		bitclock-master = <&dp1_link_cpu>;
+		dp1_link_codec: codec {
+			playback-only;
+			sound-dai = <&dp1>;
+		};
+	};
+};
+
+&i2s1 {
+	status = "okay";
+	pinctrl-0 = <&sspa1_1_cfg>;
+	pinctrl-names = "default";
+};
+
+&sound_card1 {
+	status = "okay";
+	simple-audio-card,name = "snd-es8326";
+	simple-audio-card,mclk-fs = <256>;
+	simple-audio-card,dai-link@0 {
+		format = "i2s";
+		frame-master = <&link1_cpu>;
+		bitclock-master = <&link1_cpu>;
+
+		link1_cpu: cpu {
+			sound-dai = <&i2s1>;
+		};
+
+		link1_codec: codec {
+			sound-dai = <&es8326>;
+		};
+	};
+};
