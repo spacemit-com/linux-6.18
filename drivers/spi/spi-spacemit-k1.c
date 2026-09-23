@@ -17,6 +17,7 @@
 #include <linux/reset.h>
 #include <linux/scatterlist.h>
 #include <linux/sizes.h>
+#include <linux/spinlock.h>
 #include <linux/spi/spi.h>
 #include <linux/units.h>
 #include <linux/pm.h>
@@ -27,6 +28,8 @@
 #define K1_SPI_MIN_SPEED_HZ		6250
 #define K1_SPI_MAX_SPEED_HZ		51200000
 
+#define K1_SPI_TARGET_TIMEOUT		0x40000
+
 /* DMA constraints */
 #define K1_SPI_DMA_ALIGNMENT		64
 #define K1_SPI_MAX_DMA_LEN		SZ_512K
@@ -36,6 +39,8 @@
 #define TOP_SSE				BIT(0)		/* Enable port */
 #define TOP_FRF_MASK			GENMASK(2, 1)	/* Frame format */
 #define TOP_FRF_MOTOROLA			0	/* Motorola SPI */
+#define TOP_SCLKDIR			BIT(3)		/* Receive clock */
+#define TOP_SFRMDIR			BIT(4)		/* Receive frame */
 #define TOP_DSS_MASK			GENMASK(9, 5)	/* Data size (1-32) */
 #define TOP_SPO				BIT(10)		/* Polarity: 0=low */
 #define TOP_SPH				BIT(11)		/* Half-cycle phase */
@@ -76,9 +81,12 @@
 /* SSP Status Register */
 #define SSP_STATUS		0x14
 #define SSP_STATUS_BSY			BIT(0)		/* SPI/I2S busy */
+#define SSP_STATUS_TINT			BIT(3)		/* RX timeout interrupt */
+#define SSP_STATUS_TFS			BIT(5)		/* TX FIFO service */
 #define SSP_STATUS_TNF			BIT(6)		/* TX FIFO not full */
 #define SSP_STATUS_TFL			GENMASK(11, 7)	/* TX FIFO level */
 #define SSP_STATUS_TUR			BIT(12)		/* TX FIFO underrun */
+#define SSP_STATUS_RFS			BIT(13)		/* RX FIFO service */
 #define SSP_STATUS_RNE			BIT(14)		/* RX FIFO not empty */
 #define SSP_STATUS_RFL			GENMASK(19, 15)	/* RX FIFO level */
 #define SSP_STATUS_ROR			BIT(20)		/* RX FIFO overrun */
@@ -91,6 +99,17 @@
 /* The FIFO sizes and thresholds are the same for RX and TX */
 #define K1_SPI_FIFO_SIZE	32
 #define K1_SPI_THRESH		(K1_SPI_FIFO_SIZE / 2)
+#define K1_SPI_TARGET_RX_THRESH	1
+#define K1_SPI_TARGET_TX_THRESH	8
+
+struct k1_spi_target_state {
+	spinlock_t lock;		/* Protects transfer state and teardown */
+	bool stopping;
+	u32 bytes;
+	unsigned int rx_resid;
+	unsigned int tx_resid;
+	struct spi_transfer *transfer;
+};
 
 struct k1_spi_driver_data {
 	struct spi_controller *host;
@@ -110,6 +129,7 @@ struct k1_spi_driver_data {
 	struct spi_transfer *transfer;	/* Current transfer */
 
 	bool dma_enabled;
+	struct k1_spi_target_state *target;
 };
 
 /* Set our registers to a known initial state */
@@ -166,6 +186,24 @@ static int k1_spi_setup(struct spi_device *spi)
 		val |= TOP_SPO;		/* active low */
 	if (spi->mode & SPI_LOOP)
 		val |= TOP_LBM;		/* enable loopback */
+	writel(val, drv_data->base + SSP_TOP_CTRL);
+
+	return 0;
+}
+
+static int k1_spi_target_setup(struct spi_device *spi)
+{
+	struct k1_spi_driver_data *drv_data;
+	u32 val;
+
+	drv_data = spi_controller_get_devdata(spi->controller);
+
+	val = FIELD_PREP(TOP_FRF_MASK, TOP_FRF_MOTOROLA);
+	if (spi->mode & SPI_CPHA)
+		val |= TOP_SPH;
+	if (spi->mode & SPI_CPOL)
+		val |= TOP_SPO;
+	val |= TOP_SCLKDIR | TOP_SFRMDIR;
 	writel(val, drv_data->base + SSP_TOP_CTRL);
 
 	return 0;
@@ -620,6 +658,367 @@ done:
 	return IRQ_HANDLED;
 }
 
+static void k1_spi_target_stop_locked(struct k1_spi_driver_data *drv_data)
+{
+	u32 val;
+
+	writel(0, drv_data->base + SSP_INT_EN);
+
+	val = readl(drv_data->base + SSP_FIFO_CTRL);
+	val &= ~(FIFO_TSRE | FIFO_RSRE);
+	writel(val, drv_data->base + SSP_FIFO_CTRL);
+
+	val = readl(drv_data->base + SSP_TOP_CTRL);
+	val &= ~(TOP_SSE | TOP_TRAIL | TOP_HOLD_FRAME_LOW);
+	writel(val, drv_data->base + SSP_TOP_CTRL);
+}
+
+static void k1_spi_target_configure_fifo(struct k1_spi_driver_data *drv_data)
+{
+	u32 val;
+
+	val = FIELD_PREP(FIFO_RFT_MASK, K1_SPI_TARGET_RX_THRESH - 1);
+	val |= FIELD_PREP(FIFO_TFT_MASK, K1_SPI_TARGET_TX_THRESH - 1);
+	writel(val, drv_data->base + SSP_FIFO_CTRL);
+}
+
+static void k1_spi_target_flush_rx(struct k1_spi_driver_data *drv_data)
+{
+	while (readl(drv_data->base + SSP_STATUS) & SSP_STATUS_RNE)
+		readl(drv_data->base + SSP_DATAR);
+}
+
+static struct spi_transfer *
+k1_spi_target_detach_locked(struct k1_spi_driver_data *drv_data, int error)
+{
+	struct k1_spi_target_state *target = drv_data->target;
+	struct spi_transfer *transfer = target->transfer;
+
+	if (!transfer)
+		return NULL;
+
+	target->transfer = NULL;
+	if (error) {
+		transfer->error |= SPI_TRANS_FAIL_IO;
+		if (drv_data->host->cur_msg &&
+		    drv_data->host->cur_msg->status == -EINPROGRESS)
+			drv_data->host->cur_msg->status = error;
+	}
+
+	return transfer;
+}
+
+static void k1_spi_target_abort_transfer(struct k1_spi_driver_data *drv_data,
+					 int error)
+{
+	struct k1_spi_target_state *target = drv_data->target;
+	struct spi_transfer *transfer;
+	unsigned long flags;
+
+	spin_lock_irqsave(&target->lock, flags);
+	k1_spi_target_stop_locked(drv_data);
+	writel(0, drv_data->base + SSP_TIMEOUT);
+	k1_spi_target_flush_rx(drv_data);
+	writel(~0, drv_data->base + SSP_STATUS);
+	transfer = k1_spi_target_detach_locked(drv_data, error);
+	spin_unlock_irqrestore(&target->lock, flags);
+
+	synchronize_irq(drv_data->irq);
+
+	if (transfer)
+		spi_finalize_current_transfer(drv_data->host);
+}
+
+static int
+k1_spi_target_prepare_message(struct spi_controller *host,
+			      struct spi_message *message)
+{
+	struct k1_spi_driver_data *drv_data = spi_controller_get_devdata(host);
+	struct k1_spi_target_state *target = drv_data->target;
+	unsigned long flags;
+
+	if (!list_is_singular(&message->transfers)) {
+		dev_err(&message->spi->dev,
+			"target mode supports exactly one transfer per message\n");
+		return -EOPNOTSUPP;
+	}
+
+	spin_lock_irqsave(&target->lock, flags);
+	if (target->stopping) {
+		spin_unlock_irqrestore(&target->lock, flags);
+		return -ESHUTDOWN;
+	}
+	if (target->transfer) {
+		spin_unlock_irqrestore(&target->lock, flags);
+		return -EBUSY;
+	}
+
+	k1_spi_target_stop_locked(drv_data);
+	writel(0, drv_data->base + SSP_TIMEOUT);
+	k1_spi_target_configure_fifo(drv_data);
+	k1_spi_target_flush_rx(drv_data);
+	writel(~0, drv_data->base + SSP_STATUS);
+	spin_unlock_irqrestore(&target->lock, flags);
+
+	return 0;
+}
+
+static int
+k1_spi_target_unprepare_message(struct spi_controller *host,
+				struct spi_message *message)
+{
+	struct k1_spi_driver_data *drv_data = spi_controller_get_devdata(host);
+	struct k1_spi_target_state *target = drv_data->target;
+	unsigned long flags;
+
+	spin_lock_irqsave(&target->lock, flags);
+	k1_spi_target_stop_locked(drv_data);
+	writel(0, drv_data->base + SSP_TIMEOUT);
+	k1_spi_target_configure_fifo(drv_data);
+	k1_spi_target_flush_rx(drv_data);
+	writel(~0, drv_data->base + SSP_STATUS);
+	spin_unlock_irqrestore(&target->lock, flags);
+
+	return 0;
+}
+
+static void k1_spi_target_write_word(struct k1_spi_driver_data *drv_data)
+{
+	struct k1_spi_target_state *target = drv_data->target;
+	struct spi_transfer *transfer = target->transfer;
+	u32 bytes = target->bytes;
+	const void *buf;
+	u32 val;
+
+	if (transfer->tx_buf) {
+		buf = transfer->tx_buf + (transfer->len - target->tx_resid);
+		if (bytes == 1)
+			val = *(u8 *)buf;
+		else if (bytes == 2)
+			val = *(u16 *)buf;
+		else
+			val = *(u32 *)buf;
+	} else {
+		val = 0;
+	}
+
+	writel(val, drv_data->base + SSP_DATAR);
+	target->tx_resid -= bytes;
+}
+
+static bool k1_spi_target_write(struct k1_spi_driver_data *drv_data, u32 val)
+{
+	struct k1_spi_target_state *target = drv_data->target;
+	unsigned int count;
+
+	count = K1_SPI_FIFO_SIZE - FIELD_GET(SSP_STATUS_TFL, val);
+	count = min(count, target->tx_resid / target->bytes);
+	while (count--)
+		k1_spi_target_write_word(drv_data);
+
+	return !target->tx_resid;
+}
+
+static void k1_spi_target_read_word(struct k1_spi_driver_data *drv_data)
+{
+	struct k1_spi_target_state *target = drv_data->target;
+	struct spi_transfer *transfer = target->transfer;
+	u32 bytes = target->bytes;
+	void *buf;
+	u32 val;
+
+	val = readl(drv_data->base + SSP_DATAR);
+	if (transfer->rx_buf) {
+		buf = transfer->rx_buf + (transfer->len - target->rx_resid);
+		if (bytes == 1)
+			*(u8 *)buf = val;
+		else if (bytes == 2)
+			*(u16 *)buf = val;
+		else
+			*(u32 *)buf = val;
+	}
+
+	target->rx_resid -= bytes;
+}
+
+static bool k1_spi_target_read(struct k1_spi_driver_data *drv_data, u32 val)
+{
+	struct k1_spi_target_state *target = drv_data->target;
+	unsigned int count;
+
+	do {
+		count = FIELD_GET(SSP_STATUS_RFL, val) + 1;
+
+		count = min(count, target->rx_resid / target->bytes);
+		do
+			k1_spi_target_read_word(drv_data);
+		while (--count);
+
+		if (!target->rx_resid)
+			return true;
+
+		val = readl(drv_data->base + SSP_STATUS);
+		if (val & SSP_STATUS_RNE)
+			writel(SSP_STATUS_RNE, drv_data->base + SSP_STATUS);
+		else
+			return false;
+	} while (true);
+}
+
+static int k1_spi_target_transfer_one(struct spi_controller *host,
+				      struct spi_device *spi,
+				      struct spi_transfer *transfer)
+{
+	struct k1_spi_driver_data *drv_data = spi_controller_get_devdata(host);
+	struct k1_spi_target_state *target = drv_data->target;
+	unsigned long flags;
+	u32 ctrl;
+	u32 val;
+
+	spin_lock_irqsave(&target->lock, flags);
+	if (target->stopping) {
+		spin_unlock_irqrestore(&target->lock, flags);
+		return -ESHUTDOWN;
+	}
+	if (target->transfer) {
+		spin_unlock_irqrestore(&target->lock, flags);
+		return -EBUSY;
+	}
+
+	target->bytes = spi_bpw_to_bytes(transfer->bits_per_word);
+	target->rx_resid = transfer->len;
+	target->tx_resid = transfer->len;
+	target->transfer = transfer;
+
+	k1_spi_target_stop_locked(drv_data);
+	k1_spi_target_configure_fifo(drv_data);
+	k1_spi_target_flush_rx(drv_data);
+	writel(~0, drv_data->base + SSP_STATUS);
+	writel(FIELD_PREP(SSP_TIMEOUT_MASK, K1_SPI_TARGET_TIMEOUT),
+	       drv_data->base + SSP_TIMEOUT);
+
+	ctrl = readl(drv_data->base + SSP_TOP_CTRL);
+	ctrl &= ~(TOP_SSE | TOP_DSS_MASK | TOP_HOLD_FRAME_LOW | TOP_TRAIL);
+	ctrl |= FIELD_PREP(TOP_DSS_MASK, transfer->bits_per_word - 1);
+	ctrl |= TOP_SCLKDIR | TOP_SFRMDIR;
+	writel(ctrl, drv_data->base + SSP_TOP_CTRL);
+	/* Hardware discards DATAR writes while SSE is clear. */
+	writel(ctrl | TOP_SSE, drv_data->base + SSP_TOP_CTRL);
+
+	val = readl(drv_data->base + SSP_STATUS);
+	if (target->tx_resid && (val & SSP_STATUS_TNF))
+		k1_spi_target_write(drv_data, val);
+
+	val = SSP_INT_EN_TINTE | SSP_INT_EN_RIE |
+	      SSP_INT_EN_RIM | SSP_INT_EN_TIM | SSP_INT_EN_EBCEI;
+	if (target->tx_resid)
+		val |= SSP_INT_EN_TIE;
+	writel(val, drv_data->base + SSP_INT_EN);
+	spin_unlock_irqrestore(&target->lock, flags);
+
+	return 1;
+}
+
+static u32 k1_spi_target_irq_pending(u32 status, u32 int_en)
+{
+	u32 pending = 0;
+
+	if (int_en & SSP_INT_EN_TINTE)
+		pending |= status & SSP_STATUS_TINT;
+	if (int_en & SSP_INT_EN_RIE)
+		pending |= status & SSP_STATUS_RFS;
+	if (int_en & SSP_INT_EN_TIE)
+		pending |= status & SSP_STATUS_TFS;
+	if (int_en & SSP_INT_EN_RIM)
+		pending |= status & SSP_STATUS_ROR;
+	if (int_en & SSP_INT_EN_TIM)
+		pending |= status & SSP_STATUS_TUR;
+	if (int_en & SSP_INT_EN_EBCEI)
+		pending |= status & SSP_STATUS_BCE;
+
+	return pending;
+}
+
+static irqreturn_t k1_spi_target_isr(int irq, void *dev_id)
+{
+	struct k1_spi_driver_data *drv_data = dev_id;
+	struct k1_spi_target_state *target = drv_data->target;
+	struct spi_transfer *transfer = NULL;
+	unsigned long flags;
+	u32 int_en;
+	u32 pending;
+	u32 status;
+	int error = 0;
+
+	spin_lock_irqsave(&target->lock, flags);
+
+	int_en = readl(drv_data->base + SSP_INT_EN);
+	status = readl(drv_data->base + SSP_STATUS);
+	pending = k1_spi_target_irq_pending(status, int_en);
+	if (!pending) {
+		spin_unlock_irqrestore(&target->lock, flags);
+		return IRQ_NONE;
+	}
+
+	writel(pending, drv_data->base + SSP_STATUS);
+
+	if (!target->transfer) {
+		k1_spi_target_stop_locked(drv_data);
+		spin_unlock_irqrestore(&target->lock, flags);
+		return IRQ_HANDLED;
+	}
+
+	if (pending & (SSP_STATUS_TUR | SSP_STATUS_ROR | SSP_STATUS_BCE)) {
+		error = -EIO;
+		goto done;
+	}
+
+	if (target->rx_resid && (status & SSP_STATUS_RNE) &&
+	    k1_spi_target_read(drv_data, status))
+		goto done;
+
+	status = readl(drv_data->base + SSP_STATUS);
+	if (target->tx_resid && (status & SSP_STATUS_TNF))
+		k1_spi_target_write(drv_data, status);
+
+	int_en = SSP_INT_EN_TINTE | SSP_INT_EN_RIE |
+		 SSP_INT_EN_RIM | SSP_INT_EN_TIM | SSP_INT_EN_EBCEI;
+	if (target->tx_resid)
+		int_en |= SSP_INT_EN_TIE;
+	writel(int_en, drv_data->base + SSP_INT_EN);
+
+	spin_unlock_irqrestore(&target->lock, flags);
+	return IRQ_HANDLED;
+
+done:
+	k1_spi_target_stop_locked(drv_data);
+	transfer = k1_spi_target_detach_locked(drv_data, error);
+	spin_unlock_irqrestore(&target->lock, flags);
+
+	if (transfer)
+		spi_finalize_current_transfer(drv_data->host);
+
+	return IRQ_HANDLED;
+}
+
+static void
+k1_spi_target_handle_err(struct spi_controller *host,
+			 struct spi_message *message)
+{
+	struct k1_spi_driver_data *drv_data = spi_controller_get_devdata(host);
+
+	k1_spi_target_abort_transfer(drv_data, message->status ?: -EIO);
+}
+
+static int k1_spi_target_abort(struct spi_controller *host)
+{
+	struct k1_spi_driver_data *drv_data = spi_controller_get_devdata(host);
+
+	k1_spi_target_abort_transfer(drv_data, -EINTR);
+
+	return 0;
+}
+
 static int
 k1_spi_dma_setup(struct k1_spi_driver_data *drv_data, struct device *dev)
 {
@@ -695,20 +1094,45 @@ static int k1_spi_probe(struct platform_device *pdev)
 	struct reset_control *reset;
 	struct spi_controller *host;
 	struct resource *iores;
+	irq_handler_t irq_handler;
+	bool slave_mode;
+	size_t priv_size;
 	int ret;
 
-	host = devm_spi_alloc_host(dev, sizeof(*drv_data));
+	slave_mode = of_property_read_bool(dev_of_node(dev), "spi-slave");
+
+	if (slave_mode && !IS_ENABLED(CONFIG_SPI_SLAVE))
+		return dev_err_probe(dev, -EOPNOTSUPP,
+				     "target mode requires CONFIG_SPI_SLAVE\n");
+
+	priv_size = sizeof(*drv_data);
+	if (slave_mode) {
+		priv_size += sizeof(*drv_data->target);
+		host = devm_spi_alloc_target(dev, priv_size);
+	} else {
+		host = devm_spi_alloc_host(dev, priv_size);
+	}
 	if (!host)
 		return -ENOMEM;
+
 	drv_data = spi_controller_get_devdata(host);
 	drv_data->host = host;
+	if (slave_mode) {
+		drv_data->target = (void *)(drv_data + 1);
+		spin_lock_init(&drv_data->target->lock);
+	}
+
 	platform_set_drvdata(pdev, drv_data);
 
-	ret = devm_k1_spi_dma_setup(drv_data, dev);
-	if (ret == -EPROBE_DEFER)
-		return ret;
-	if (ret)
-		dev_warn(dev, "DMA setup failed (%d), falling back to PIO\n", ret);
+	if (!slave_mode) {
+		ret = devm_k1_spi_dma_setup(drv_data, dev);
+		if (ret == -EPROBE_DEFER)
+			return ret;
+		if (ret)
+			dev_warn(dev,
+				 "DMA setup failed (%d), falling back to PIO\n",
+				 ret);
+	}
 
 	drv_data->base = devm_platform_get_and_ioremap_resource(pdev, 0,
 								&iores);
@@ -739,7 +1163,8 @@ static int k1_spi_probe(struct platform_device *pdev)
 	if (drv_data->irq < 0)
 		return dev_err_probe(dev, drv_data->irq, "error getting IRQ\n");
 
-	ret = devm_request_irq(dev, drv_data->irq, k1_spi_ssp_isr,
+	irq_handler = slave_mode ? k1_spi_target_isr : k1_spi_ssp_isr;
+	ret = devm_request_irq(dev, drv_data->irq, irq_handler,
 			       IRQF_SHARED, dev_name(dev), drv_data);
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "error requesting IRQ\n");
@@ -748,22 +1173,34 @@ static int k1_spi_probe(struct platform_device *pdev)
 	host->dev.of_node = dev_of_node(dev);
 	host->dev.parent = dev;
 	host->num_chipselect = 1;
-	if (drv_data->dma_enabled)
-		host->dma_alignment = K1_SPI_DMA_ALIGNMENT;
-	host->mode_bits = SPI_CPOL | SPI_CPHA | SPI_LOOP;
 	host->bits_per_word_mask = SPI_BPW_RANGE_MASK(4, 32);
-	host->min_speed_hz = K1_SPI_MIN_SPEED_HZ;
-	host->max_speed_hz = K1_SPI_MAX_SPEED_HZ;
-	host->flags = SPI_CONTROLLER_MUST_RX | SPI_CONTROLLER_MUST_TX;
-	host->max_dma_len = K1_SPI_MAX_DMA_LEN;
 
-	host->setup = k1_spi_setup;
-	host->cleanup = k1_spi_cleanup;
-	host->can_dma = k1_spi_can_dma;
-	host->prepare_message = k1_spi_prepare_message;
-	host->set_cs = k1_spi_set_cs;
-	host->transfer_one = k1_spi_transfer_one;
-	host->handle_err = k1_spi_handle_err;
+	if (slave_mode) {
+		host->mode_bits = SPI_CPOL | SPI_CPHA;
+		host->flags = 0;
+		host->setup = k1_spi_target_setup;
+		host->prepare_message = k1_spi_target_prepare_message;
+		host->unprepare_message = k1_spi_target_unprepare_message;
+		host->transfer_one = k1_spi_target_transfer_one;
+		host->handle_err = k1_spi_target_handle_err;
+		host->target_abort = k1_spi_target_abort;
+	} else {
+		if (drv_data->dma_enabled)
+			host->dma_alignment = K1_SPI_DMA_ALIGNMENT;
+		host->mode_bits = SPI_CPOL | SPI_CPHA | SPI_LOOP;
+		host->min_speed_hz = K1_SPI_MIN_SPEED_HZ;
+		host->max_speed_hz = K1_SPI_MAX_SPEED_HZ;
+		host->flags = SPI_CONTROLLER_MUST_RX | SPI_CONTROLLER_MUST_TX;
+		host->max_dma_len = K1_SPI_MAX_DMA_LEN;
+
+		host->setup = k1_spi_setup;
+		host->cleanup = k1_spi_cleanup;
+		host->can_dma = k1_spi_can_dma;
+		host->prepare_message = k1_spi_prepare_message;
+		host->set_cs = k1_spi_set_cs;
+		host->transfer_one = k1_spi_transfer_one;
+		host->handle_err = k1_spi_handle_err;
+	}
 
 	ret = devm_spi_register_controller(dev, host);
 	if (ret)
@@ -772,14 +1209,32 @@ static int k1_spi_probe(struct platform_device *pdev)
 	return ret;
 }
 
+static void k1_spi_target_set_stopping(struct k1_spi_driver_data *drv_data,
+				       bool stopping)
+{
+	struct k1_spi_target_state *target = drv_data->target;
+	unsigned long flags;
+
+	spin_lock_irqsave(&target->lock, flags);
+	target->stopping = stopping;
+	spin_unlock_irqrestore(&target->lock, flags);
+}
+
 #ifdef CONFIG_PM_SLEEP
 static int k1_spi_suspend(struct device *dev)
 {
 	struct k1_spi_driver_data *drv_data = dev_get_drvdata(dev);
 	int ret;
 
+	if (drv_data->target) {
+		k1_spi_target_set_stopping(drv_data, true);
+		k1_spi_target_abort_transfer(drv_data, -ESHUTDOWN);
+	}
+
 	ret = spi_controller_suspend(drv_data->host);
 	if (ret) {
+		if (drv_data->target)
+			k1_spi_target_set_stopping(drv_data, false);
 		dev_err(dev, "spi_controller_suspend failed\n");
 		return ret;
 	}
@@ -804,12 +1259,17 @@ static int k1_spi_resume(struct device *dev)
 	clk_prepare_enable(drv_data->clk);
 
 	k1_spi_register_reset(drv_data, true);
-
 	writel(drv_data->top_ctrl, drv_data->base + SSP_TOP_CTRL);
 
+	if (drv_data->target)
+		k1_spi_target_set_stopping(drv_data, false);
+
 	ret = spi_controller_resume(drv_data->host);
-	if (ret)
+	if (ret) {
+		if (drv_data->target)
+			k1_spi_target_set_stopping(drv_data, true);
 		dev_err(dev, "failed to resume SPI controller\n");
+	}
 
 	dev_dbg(dev, "successfully resumed\n");
 
@@ -821,6 +1281,16 @@ static const struct dev_pm_ops k1_spi_pm_ops = {
 };
 #endif
 
+static void k1_spi_remove(struct platform_device *pdev)
+{
+	struct k1_spi_driver_data *drv_data = platform_get_drvdata(pdev);
+
+	if (drv_data->target) {
+		k1_spi_target_set_stopping(drv_data, true);
+		k1_spi_target_abort_transfer(drv_data, -ESHUTDOWN);
+	}
+}
+
 static const struct of_device_id k1_spi_dt_ids[] = {
 	{ .compatible = "spacemit,k1-spi", },
 	{ .compatible = "spacemit,k3-spi", },
@@ -830,6 +1300,7 @@ MODULE_DEVICE_TABLE(of, k1_spi_dt_ids);
 
 static struct platform_driver k1_spi_driver = {
 	.probe = k1_spi_probe,
+	.remove = k1_spi_remove,
 	.driver = {
 		.name		= "k1-spi",
 		.of_match_table	= k1_spi_dt_ids,
