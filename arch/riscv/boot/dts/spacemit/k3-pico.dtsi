@@ -104,9 +104,9 @@
 		/*
 		 * Cooling states 0-8 map to PWM values 0-255. Keep the fan
 		 * running at the lowest state to avoid unreliable low-duty
-		 * restarts, and reserve headroom by limiting the highest state.
+		 * restarts, and use full duty at the hottest trip.
 		 */
-		cooling-levels = <60 75 90 105 120 149 170 191 213>;
+		cooling-levels = <80 99 107 127 141 168 185 200 255>;
 		#cooling-cells = <2>;
 	};
 
@@ -816,50 +816,50 @@
 
 		trips {
 			thermal_cluster0_trip0: thermal_cluster0-trip0 {
-				temperature = <45000>;
-				hysteresis = <2000>;
+				temperature = <55000>;
+				hysteresis = <3000>;
 				type = "active";
 			};
 
 			thermal_cluster0_trip1: thermal_cluster0-trip1 {
-				temperature = <55000>;
-				hysteresis = <2000>;
+				temperature = <60000>;
+				hysteresis = <5000>;
 				type = "passive";
 			};
 
 			thermal_cluster0_trip2: thermal_cluster0-trip2 {
 				temperature = <65000>;
-				hysteresis = <2000>;
+				hysteresis = <5000>;
 				type = "passive";
 			};
 
 			thermal_cluster0_trip3: thermal_cluster0-trip3 {
-				temperature = <75000>;
-				hysteresis = <2000>;
+				temperature = <68000>;
+				hysteresis = <5000>;
 				type = "passive";
 			};
 
 			thermal_cluster0_trip4: thermal_cluster0-trip4 {
-				temperature = <78000>;
-				hysteresis = <2000>;
+				temperature = <72000>;
+				hysteresis = <5000>;
 				type = "passive";
 			};
 
 			thermal_cluster0_trip5: thermal_cluster0-trip5 {
-				temperature = <82000>;
-				hysteresis = <2000>;
+				temperature = <73000>;
+				hysteresis = <5000>;
 				type = "passive";
 			};
 
 			thermal_cluster0_trip6: thermal_cluster0-trip6 {
-				temperature = <85000>;
-				hysteresis = <2000>;
+				temperature = <74000>;
+				hysteresis = <5000>;
 				type = "passive";
 			};
 
 			thermal_cluster0_trip7: thermal_cluster0-trip7 {
-				temperature = <88000>;
-				hysteresis = <2000>;
+				temperature = <75000>;
+				hysteresis = <3000>;
 				type = "passive";
 			};
 		};
@@ -872,7 +872,7 @@
 
 			map1 {
 				trip = <&thermal_cluster0_trip1>;
-				cooling-device = <&fan0 2 3>;
+				cooling-device = <&fan0 1 2>;
 			};
 
 			map2 {
@@ -882,22 +882,22 @@
 
 			map3 {
 				trip = <&thermal_cluster0_trip3>;
-				cooling-device = <&fan0 4 4>;
+				cooling-device = <&fan0 3 4>;
 			};
 
 			map4 {
 				trip = <&thermal_cluster0_trip4>;
-				cooling-device = <&fan0 5 5>;
+				cooling-device = <&fan0 5 6>;
 			};
 
 			map5 {
 				trip = <&thermal_cluster0_trip5>;
-				cooling-device = <&fan0 6 6>;
+				cooling-device = <&fan0 5 6>;
 			};
 
 			map6 {
 				trip = <&thermal_cluster0_trip6>;
-				cooling-device = <&fan0 7 7>;
+				cooling-device = <&fan0 6 7>;
 			};
 
 			map7 {
