@@ -6,7 +6,7 @@
 
 / {
 	model = "SpacemiT K3 CoM260 IFX2";
-	compatible = "spacemit,k3-com260-ifx", "spacemit,k3-com260", "spacemit,k3";
+	compatible = "spacemit,k3-com260-ifx2", "spacemit,k3-com260", "spacemit,k3";
 
 	rfkill-pcie-wlan {
 		compatible = "rfkill-gpio";
