@@ -744,27 +744,27 @@
 		cooling-maps {
 			map0 {
 				trip = <&thermal_cluster0_trip0>;
-				cooling-device = <&ctf2301 0 50>;
+				cooling-device = <&ctf2301 11 44>;
 			};
 
 			map1 {
 				trip = <&thermal_cluster0_trip1>;
-				cooling-device = <&ctf2301 64 75>;
+				cooling-device = <&ctf2301 55 66>;
 			};
 
 			map2 {
 				trip = <&thermal_cluster0_trip2>;
-				cooling-device = <&ctf2301 102 128>;
+				cooling-device = <&ctf2301 83 105>;
 			};
 
 			map3 {
 				trip = <&thermal_cluster0_trip3>;
-				cooling-device = <&ctf2301 179 204>;
+				cooling-device = <&ctf2301 144 166>;
 			};
 
 			map4 {
 				trip = <&thermal_cluster0_trip4>;
-				cooling-device = <&ctf2301 255 255>;
+				cooling-device = <&ctf2301 210 210>;
 			};
 		};
 	};
