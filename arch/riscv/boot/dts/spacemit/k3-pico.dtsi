@@ -353,6 +353,67 @@
 	};
 };
 
+/*
+ * Extend IO (schematic sheet 48, J1 FPC-26P-V / J2 FPC-36P-V)
+ *
+ * The pads below are IO_TYPE_EXTERNAL, so the pinctrl driver panics unless
+ * power-source is given.  The rail is fixed by the board wiring and the
+ * schematic net names carry it (_3V3 / _1V8), so it is declared here rather
+ * than in the shared k3-pinctrl.dtsi.
+ *
+ * Configs that are IO_TYPE_1V8 (can1-0, ssp0-0, rcan0-0, gmac3) need no
+ * power-source and are deliberately absent from this list.
+ */
+&pinctrl {
+	uart10-0-cfg {
+		uart10-0-pins {
+			power-source = <3300>;
+		};
+	};
+
+	ri2c1-1-cfg {
+		ri2c1-0-pins {
+			power-source = <3300>;
+		};
+	};
+
+	rpwm1-1-cfg {
+		rpwm1-0-pins {
+			power-source = <3300>;
+		};
+	};
+
+	rpwm2-1-cfg {
+		rpwm2-0-pins {
+			power-source = <3300>;
+		};
+	};
+
+	ruart0-2-cfg {
+		ruart0-0-pins {
+			power-source = <3300>;
+		};
+	};
+
+	rcan2-0-cfg {
+		rcan2-0-pins {
+			power-source = <3300>;
+		};
+	};
+
+	rcan3-0-cfg {
+		rcan3-0-pins {
+			power-source = <3300>;
+		};
+	};
+
+	rcan4-0-cfg {
+		rcan4-0-pins {
+			power-source = <3300>;
+		};
+	};
+};
+
 &uart0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&uart0_0_cfg>;
@@ -1455,4 +1516,81 @@
 			sound-dai = <&es8326>;
 		};
 	};
+};
+
+/* Extend IO - schematic sheet 48 */
+
+&uart10 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart10_0_cfg>;
+	status = "okay";
+};
+
+/* SPI0 (J2) - no slave is described, enable CS_HIGH for generic use */
+&spi0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ssp0_0_cfg>;
+	spi-cs-high;
+	status = "okay";
+};
+
+/* CAN1 (J2) */
+&flexcan1 {
+	clock-frequency = <80000000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&can1_0_cfg>;
+	status = "okay";
+};
+
+&r_flexcan0 {
+	clock-frequency = <80000000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&rcan0_0_cfg>;
+	status = "okay";
+};
+
+&r_flexcan2 {
+	clock-frequency = <80000000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&rcan2_0_cfg>;
+	status = "okay";
+};
+
+&r_flexcan3 {
+	clock-frequency = <80000000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&rcan3_0_cfg>;
+	status = "okay";
+};
+
+&r_flexcan4 {
+	clock-frequency = <80000000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&rcan4_0_cfg>;
+	status = "okay";
+};
+
+/* R-domain I2C / UART / PWM (J1) */
+&r_i2c1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ri2c1_1_cfg>;
+	status = "okay";
+};
+
+&r_uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&ruart0_2_cfg>;
+	status = "okay";
+};
+
+&rpwm1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&rpwm1_1_cfg>;
+	status = "okay";
+};
+
+&rpwm2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&rpwm2_1_cfg>;
+	status = "okay";
 };
