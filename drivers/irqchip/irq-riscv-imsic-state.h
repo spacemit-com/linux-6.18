@@ -21,6 +21,16 @@ struct imsic_vector {
 	unsigned int				local_id;
 	/* Details saved by driver in the vector */
 	unsigned int				irq;
+	/*
+	 * Multi-MSI (range allocated) group details. A group is a set of
+	 * consecutive, naturally aligned local IDs on one CPU. The device
+	 * has a single MSI message for the whole group and derives the
+	 * message data of the N-th interrupt from "group base data + N",
+	 * so all members of a group must stay on the CPU they were
+	 * allocated on. group_size <= 1 means the vector is standalone.
+	 */
+	unsigned int				group_size;
+	unsigned int				group_base;
 	/* Details accessed using local lock held */
 	bool					enable;
 	struct imsic_vector			*move_next;

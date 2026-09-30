@@ -461,6 +461,8 @@ struct imsic_vector *imsic_vector_alloc(unsigned int irq, const struct cpumask *
 	lpriv = per_cpu_ptr(imsic->lpriv, cpu);
 	vec = &lpriv->vectors[local_id];
 	vec->irq = irq;
+	vec->group_size = 1;
+	vec->group_base = local_id;
 	vec->enable = false;
 	vec->move_next = NULL;
 	vec->move_prev = NULL;
@@ -500,6 +502,8 @@ struct imsic_vector *imsic_vector_alloc_range(unsigned int base_irq,
 	for (i = 0; i < nr_irqs; i++) {
 		vec = &lpriv->vectors[local_id + i];
 		vec->irq = base_irq + i;
+		vec->group_size = nr_irqs;
+		vec->group_base = local_id;
 		vec->enable = false;
 		vec->move_next = NULL;
 		vec->move_prev = NULL;
@@ -514,6 +518,8 @@ void imsic_vector_free(struct imsic_vector *vec)
 
 	raw_spin_lock_irqsave(&imsic->matrix_lock, flags);
 	vec->irq = 0;
+	vec->group_size = 0;
+	vec->group_base = 0;
 	irq_matrix_free(imsic->matrix, vec->cpu, vec->local_id, false);
 	raw_spin_unlock_irqrestore(&imsic->matrix_lock, flags);
 }

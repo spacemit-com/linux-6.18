@@ -126,6 +126,29 @@ static int imsic_irq_set_affinity(struct irq_data *d, const struct cpumask *mask
 	if (WARN_ON(!old_vec))
 		return -ENOENT;
 
+	/*
+	 * A Multi-MSI group is allocated as a consecutive, naturally
+	 * aligned range of local IDs on a single CPU and the device has
+	 * only one MSI message for the whole group: the message data of
+	 * the N-th interrupt is derived from "group base data + N".
+	 * Moving one member to another CPU (or to another local ID)
+	 * therefore breaks the addressing of all other members and the
+	 * affected queues never receive an interrupt again, while
+	 * pci_msi_domain_write_msg() can only ever rewrite the message
+	 * for the first interrupt of the group. The affinity of the
+	 * whole group is pinned to its CPU in imsic_irq_domain_alloc(),
+	 * so refuse to move a group member somewhere else.
+	 */
+	if (old_vec->group_size > 1 &&
+	    !cpumask_test_cpu(old_vec->cpu, mask_val)) {
+		pr_warn_ratelimited("IRQ %u: refusing to move local_id %u of Multi-MSI group %u..%u off CPU %u to %*pbl\n",
+				    d->irq, old_vec->local_id,
+				    old_vec->group_base,
+				    old_vec->group_base + old_vec->group_size - 1,
+				    old_vec->cpu, cpumask_pr_args(mask_val));
+		return -EINVAL;
+	}
+
 	/* If old vector cpu belongs to the target cpumask then do nothing */
 	if (cpumask_test_cpu(old_vec->cpu, mask_val))
 		return IRQ_SET_MASK_OK_DONE;
@@ -260,15 +283,29 @@ static int imsic_irq_domain_alloc(struct irq_domain *domain, unsigned int virq,
 
 		for (i = 0; i < nr_irqs; i++) {
 			struct imsic_vector *v = vec + i;
+			struct irq_data *irqd;
 
 			irq_domain_set_info(domain, virq + i, virq + i,
 					    &imsic_irq_base_chip, v,
 					    handle_edge_irq, NULL, NULL);
 			irq_set_noprobe(virq + i);
-			irq_set_affinity(virq + i, &cpu_mask);
-			irq_data_update_effective_affinity(
-				irq_get_irq_data(virq + i),
-				cpumask_of(v->cpu));
+
+			/*
+			 * The whole group lives on one CPU and has to stay
+			 * there (see imsic_irq_set_affinity()), so pin the
+			 * affinity of every member to that CPU. Handing the
+			 * requested CPU mask to irq_set_affinity() is not
+			 * enough: managed interrupts ignore it during
+			 * allocation and the core code would still spread the
+			 * members over different CPUs, one by one, when they
+			 * are activated by request_irq().
+			 */
+			irqd = irq_get_irq_data(virq + i);
+			irq_data_update_affinity(irqd, cpumask_of(v->cpu));
+			irq_data_update_effective_affinity(irqd,
+							   cpumask_of(v->cpu));
+			irqd_set_single_target(irqd);
+			irqd_set_affinity_on_activate(irqd);
 		}
 	} else {
 		vec = imsic_vector_alloc(virq, &cpu_mask);
