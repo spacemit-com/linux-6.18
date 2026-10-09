@@ -3088,6 +3088,13 @@ static int inno_dp_drv_pm_suspend_late(struct device *dev)
 
 	soc_dp_hw_disable(dp);
 
+	if(INVALID_GPIO != dp->gpio_bl)
+		gpio_direction_output(dp->gpio_bl, 0);
+	if(INVALID_GPIO != dp->gpio_enable)
+		gpio_direction_output(dp->gpio_enable, 0);
+	if(INVALID_GPIO != dp->gpio_power)
+		gpio_direction_output(dp->gpio_power, 0);
+
 	if (dp->pxclk)
 		clk_disable_unprepare(dp->pxclk);
 
@@ -3121,6 +3128,13 @@ static int inno_dp_drv_pm_resume_early(struct device *dev)
 	}
 	if (dp->pxclk)
 		clk_prepare_enable(dp->pxclk);
+
+	if (dp->gpio_power != INVALID_GPIO)
+		gpio_direction_output(dp->gpio_power, 1);
+	if (dp->gpio_enable != INVALID_GPIO)
+		gpio_direction_output(dp->gpio_enable, 1);
+	if (dp->gpio_bl != INVALID_GPIO)
+		gpio_direction_output(dp->gpio_bl, 1);
 
 	soc_dp_dev_init(dp);
 
