@@ -73,6 +73,16 @@
 		status = "disabled";
 	};
 */
+
+	aux_vcc5v0: aux-vcc5v0 {
+		compatible = "regulator-fixed";
+		regulator-name = "aux_vcc5v0";
+		regulator-always-on;
+		regulator-boot-on;
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+	};
+
 	chosen {
                 bootargs = "earlycon=sbi console=ttyS0,115200 loglevel=8 random.trust_bootloader=1";
                 rng-seed = <0x25d69b2 0xff555073 0xd23238ea 0x57aa5455 0x792478ed 0xa744f28e 0x6ba4fc54 0xa2bf20fc>;
@@ -335,6 +345,31 @@
 		m25p,fast-read;
 		broken-flash-reset;
 		status = "okay";
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			bootinfo@0 {
+				reg = <0x00000000 0x00020000>;
+			};
+			fsbl@20000 {
+				reg = <0x00020000 0x00080000>;
+			};
+			env@a0000 {
+				reg = <0x000a0000 0x00010000>;
+			};
+			esos@b0000 {
+				reg = <0x000b0000 0x00100000>;
+			};
+			opensbi@1b0000 {
+				reg = <0x001b0000 0x00060000>;
+			};
+			uboot@210000 {
+				reg = <0x00210000 0x005f0000>;
+			};
+		};
 	};
 };
 
@@ -383,6 +418,7 @@
 		/* FE1.1S USB2.0 hub (4 ports) */
 		compatible = "usb5e3,608";
 		reg = <1>;
+		vdd-supply = <&aux_vcc5v0>;
 		#address-cells = <1>;
 		#size-cells = <0>;
 
@@ -673,10 +709,6 @@
 			>;
 		};
 	};
-};
-
-&ec_master {
-	status = "okay";
 };
 
 &thermal_zones {
