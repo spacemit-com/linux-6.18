@@ -1009,7 +1009,7 @@ static const struct clk_parent_data dsi4ln2_dsi_esc_parents[] = {
 	CCU_PARENT_HW(pll1_d32_76p8),
 };
 CCU_MUX_GATE_DEFINE(dsi4ln2_dsi_esc_clk, dsi4ln2_dsi_esc_parents, APMU_LCD_CLK_RES_CTRL3,
-		    0, 1, BIT(2), 0);
+		    0, 2, BIT(2), 0);
 
 static const struct clk_parent_data dsi4ln2_lcd_dsc_parents[] = {
 	CCU_PARENT_HW(pll1_d4_614p4),
