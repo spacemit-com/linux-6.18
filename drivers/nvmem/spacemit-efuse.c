@@ -59,9 +59,6 @@ static int spacemit_efuse_read_hw(struct spacemit_efuse_bank *efuse)
 		buffer[i] = readl(efuse->base + i*4);
 	}
 
-	reset_control_assert(efuse->reset);
-	clk_disable_unprepare(efuse->clk);
-
 	return ret;
 }
 
