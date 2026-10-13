@@ -925,19 +925,11 @@ CCU_GATE_DEFINE(qspi_bus_clk, CCU_PARENT_HW(axi_clk), APMU_QSPI_CLK_RES_CTRL, BI
 
 CCU_GATE_DEFINE(dma_clk, CCU_PARENT_HW(axi_clk), APMU_DMA_CLK_RES_CTRL, BIT(3), 0);
 
-/*
- * The AES_WTM block (efuse/RNG/TE200) is clocked from SPL and its runtime
- * state is owned by OP-TEE, so Linux must never gate this clock nor assert
- * its reset. CLK_IS_CRITICAL keeps the whole path on: the core prepares and
- * enables it at registration time and the enable is propagated to the real
- * parent, so no consumer (and not the unused-clock sweep) can switch it off.
- */
 static const struct clk_parent_data aes_wtm_parents[] = {
 	CCU_PARENT_HW(pll1_d12_204p8),
 	CCU_PARENT_HW(pll1_d24_102p4),
 };
-CCU_MUX_GATE_DEFINE(aes_wtm_clk, aes_wtm_parents, APMU_AES_CLK_RES_CTRL, 6, 1, BIT(5),
-		    CLK_IS_CRITICAL);
+CCU_MUX_GATE_DEFINE(aes_wtm_clk, aes_wtm_parents, APMU_AES_CLK_RES_CTRL, 6, 1, BIT(5), 0);
 
 static const struct clk_parent_data vpu_parents[] = {
 	CCU_PARENT_HW(pll1_d4_614p4),
