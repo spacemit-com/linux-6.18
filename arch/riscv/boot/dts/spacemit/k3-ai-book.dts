@@ -37,24 +37,29 @@
 		#cooling-cells = <2>;
 	};
 
-	vcc_wifi_pwr: vcc-wifi-pwr {
+	vcc_wlan_bt_pwr: regulator-wlan-bt-pwr {
 		compatible = "regulator-fixed";
-		regulator-name = "vcc_wifi_3v3";
+		regulator-name = "vcc_wlan_bt_3v3";
 		gpio = <&gpio 1 9 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
-		regulator-always-on;
 		regulator-boot-on;
+		startup-delay-us = <5000>;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&rfkill_gpio_cfg>;
+		pinctrl-0 = <&wlan_pwren_cfg>;
 	};
 
-	rfkill_wlan: rfkill-wlan {
-		compatible = "rfkill-gpio";
-		label = "spacemit-wlan";
-		radio-type = "wlan";
-		shutdown-gpios = <&gpio 1 3 GPIO_ACTIVE_HIGH>;
-		dev-pwr-supply = <&vcc_wifi_pwr>;
-		status = "okay";
+	vcc_wlan: regulator-wlan {
+		compatible = "regulator-fixed";
+		regulator-name = "wlan_3v3";
+		gpio = <&gpio 1 3 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		vin-supply = <&vcc_wlan_bt_pwr>;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&wlan_en_cfg>;
 	};
 
 	vcc_cam_dmic: vcc-cam-dmic {
@@ -114,11 +119,6 @@
 		alloc-ranges = <1 0x40000000 0 0x20000000>;
 		linux,cma-default;
 	};
-
-	pcie_dma_pool: pcie-dma-pool@1f0000000 {
-		compatible = "restricted-dma-pool";
-		reg = <0x1 0xf0000000 0x0 0x02000000>;
-	};
 };
 
 &pinctrl {
@@ -169,11 +169,11 @@
 		};
 	};
 
-	pcie4-1-cfg {
+	pcie4-0-cfg {
 		pcie4-0-pins {
 			bias-pull-up;
 			drive-strength = <33>;
-			power-source = <1800>;
+			power-source = <3300>;
 		};
 	};
 
@@ -183,10 +183,18 @@
 		};
 	};
 
-	rfkill_gpio_cfg: rfkill-gpio-cfg {
-		rfkill-pins {
-			pinmux = <K3_PADCONF(35, 0)>,	/* WLAN_EN_3V3: gpio35 */
-				 <K3_PADCONF(41, 0)>;	/* WLAN_PWREN: gpio41 */
+	wlan_pwren_cfg: wlan-pwren-cfg {
+		pwren-pins {
+			pinmux = <K3_PADCONF(41, 0)>;	/* WLAN_PWREN */
+			bias-pull-up;
+			drive-strength = <25>;
+			power-source = <3300>;
+		};
+	};
+
+	wlan_en_cfg: wlan-en-cfg {
+		en-pins {
+			pinmux = <K3_PADCONF(35, 0)>;	/* WLAN_EN_3V3 */
 			bias-pull-up;
 			drive-strength = <25>;
 			power-source = <3300>;
@@ -357,7 +365,7 @@
 	/* For BT, FG, CAM */
 	hub@1 {
 		/* FE1.1S USB2.0 hub (4 ports) */
-		compatible = "usb5e3,608";
+		compatible = "usb1a40,101";
 		reg = <1>;
 		reset-gpios = <&gpio 0 4 GPIO_ACTIVE_LOW>;
 		#address-cells = <1>;
@@ -367,7 +375,7 @@
 			/* RTL8852BE, reset must be deasserted before enumeration */
 			compatible = "usbbda,b85b";
 			reg = <2>;
-			vdd-supply = <&p3v3>;
+			vdd-supply = <&vcc_wlan_bt_pwr>;
 			reset-gpios = <&gpio 0 30 GPIO_ACTIVE_LOW>;
 		};
 	};
@@ -465,11 +473,10 @@
 
 &pcie4_rc {
 	pinctrl-names = "default";
-	pinctrl-0 = <&pcie4_1_cfg>;
+	pinctrl-0 = <&pcie4_0_cfg>;
 	phys = <&phy5>;
 	phy-names = "phy0";
-	dma-ranges = <0x02000000 0x0 0x80000000 0x1 0xf0000000 0x0 0x02000000>;
-	memory-region = <&pcie_dma_pool>;
+	vpcie3v3-supply = <&vcc_wlan>;
 	status = "okay";
 };
 
